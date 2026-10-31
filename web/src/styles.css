@@ -500,7 +500,7 @@ dd[dir="auto"] { unicode-bidi: plaintext; text-align: left; }
   .user { display: none; }
   .inbox, .two { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .inbox > *, .two > * { min-width: 0; max-width: 100%; }
-  .folders { display: flex; flex-direction: row; gap: 6px; overflow-x: auto; padding: 10px; border-radius: 16px; flex-shrink: 0; }
+  .folders { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 6px; overflow: visible; padding: 10px; border-radius: 16px; flex-shrink: 0; }
   .folders .k { display: none; }
   .folders button.f { width: auto; flex-shrink: 0; white-space: nowrap; gap: 8px; }
   .conv-list { padding: 16px 10px; }
