@@ -19,6 +19,7 @@ import { TEMPLATES } from "./templates.js";
 import { designAgent, reviseAgent } from "./ai/designer.js";
 import { AGENT_TOOLS } from "./engine/nodes/ai.js";
 import { chunk, search } from "./knowledge/bm25.js";
+import { explainSession, matches, sortItems, toItem, type InboxFilter } from "./inbox.js";
 
 export interface AppOptions {
   store?: Store;
@@ -241,6 +242,44 @@ export async function buildApp(opts: AppOptions = {}) {
   app.get("/api/agents/:id/runs", async (req: any) => store.listRuns(req.params.id, Number(req.query.limit ?? 50)));
   app.get("/api/agents/:id/sessions", async (req: any) => store.listSessions(req.params.id));
   app.get("/api/agents/:id/integrations-log", async (req: any) => store.listIntegrationLog(req.params.id));
+  // Shared inbox across every agent: counts for the folders plus the filtered list.
+  app.get("/api/inbox", async (req: any) => {
+    const q = req.query ?? {};
+    const filter: InboxFilter = ["waiting", "handled", "all"].includes(q.filter) ? q.filter : "waiting";
+    const agents = new Map(store.listAgents().map((a) => [a.id, a]));
+    const all = store.listAllSessions().map((s) => toItem(s, agents)).filter((i) => i.messages > 0);
+    const count = (f: (i: (typeof all)[number]) => boolean) => all.filter(f).length;
+    const scoped = all.filter((i) => (!q.agent || i.agentId === q.agent) && (!q.channel || i.channel === q.channel));
+    return {
+      counts: {
+        waiting: count((i) => matches(i, "waiting")),
+        handled: count((i) => matches(i, "handled")),
+        all: all.length,
+        agents: [...agents.values()].map((a) => ({ id: a.id, name: a.name, waiting: count((i) => i.agentId === a.id && i.handoff) })),
+        channels: [...new Set(all.map((i) => i.channel))].map((c) => ({ id: c, waiting: count((i) => i.channel === c && i.handoff) })),
+      },
+      items: sortItems(scoped.filter((i) => matches(i, filter)), filter),
+    };
+  });
+  app.get("/api/sessions/:sid", async (req: any, reply) => {
+    const s = store.getSession(req.params.sid);
+    if (!s) return reply.code(404).send({ error: "Session not found" });
+    const agent = store.getAgent(s.agentId);
+    const contact = `${s.channel}:${s.contactId}`;
+    return {
+      ...s,
+      agentName: agent?.name ?? "Deleted agent",
+      brief: s.vars.__brief ?? null,
+      memory: store.listMemory(s.agentId, contact),
+      firstSeen: s.history[0]?.at ?? s.updatedAt,
+    };
+  });
+  // "Why this answer": which note, step or tool produced each agent message.
+  app.get("/api/sessions/:sid/explain", async (req: any, reply) => {
+    const s = store.getSession(req.params.sid);
+    if (!s) return reply.code(404).send({ error: "Session not found" });
+    return explainSession(s, store.listSessionRuns(s.id), store.listDocs(s.agentId), store.getAgent(s.agentId));
+  });
   app.delete("/api/sessions/:sid", async (req: any) => {
     store.deleteSession(req.params.sid);
     return { ok: true };
@@ -307,6 +346,23 @@ export async function buildApp(opts: AppOptions = {}) {
     const content = String(req.body?.content ?? "").trim();
     if (!title || !content) return reply.code(400).send({ error: "title and content required" });
     return store.addDoc(req.params.id, title, content.slice(0, 200_000));
+  });
+  app.put("/api/docs/:docId", async (req: any, reply) => {
+    const doc = store.getDoc(req.params.docId);
+    if (!doc) return reply.code(404).send({ error: "Note not found" });
+    const title = String(req.body?.title ?? doc.title).trim();
+    const content = String(req.body?.content ?? "").trim();
+    if (!title || !content) return reply.code(400).send({ error: "title and content required" });
+    return store.updateDoc(doc.id, title, content.slice(0, 200_000));
+  });
+  // Teach a better answer: the correction becomes a note the agent searches like any other.
+  app.post("/api/agents/:id/teach", async (req: any, reply) => {
+    if (!store.getAgent(req.params.id)) return reply.code(404).send({ error: "Agent not found" });
+    const question = String(req.body?.question ?? "").trim();
+    const answer = String(req.body?.answer ?? "").trim();
+    if (!question || !answer) return reply.code(400).send({ error: "question and answer required" });
+    const title = `Correction: ${question.length > 60 ? question.slice(0, 59).trimEnd() + "…" : question}`;
+    return store.addDoc(req.params.id, title, `When a customer asks: ${question}\nAnswer: ${answer}`);
   });
   app.delete("/api/docs/:docId", async (req: any) => {
     store.deleteDoc(req.params.docId);

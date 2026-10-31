@@ -170,6 +170,13 @@ export class Store {
       .all(agentId)
       .map((r) => this.toSession(r));
   }
+  /** Every conversation across all agents, newest first (the shared inbox). */
+  listAllSessions(limit = 500): Session[] {
+    return this.db
+      .prepare("SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?")
+      .all(limit)
+      .map((r) => this.toSession(r));
+  }
   deleteSession(id: string) {
     this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
   }
@@ -186,6 +193,23 @@ export class Store {
     return this.db
       .prepare("SELECT * FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT ?")
       .all(agentId, limit)
+      .map((r: any) => ({
+        id: r.id,
+        agentId: r.agent_id,
+        sessionId: r.session_id,
+        trigger: r.trigger,
+        status: r.status,
+        steps: p(r.steps, []),
+        outbox: p(r.outbox, []),
+        startedAt: r.started_at,
+        ms: r.ms,
+        error: r.error ?? undefined,
+      }));
+  }
+  listSessionRuns(sessionId: string, limit = 100): RunRecord[] {
+    return this.db
+      .prepare("SELECT * FROM runs WHERE session_id = ? ORDER BY started_at LIMIT ?")
+      .all(sessionId, limit)
       .map((r: any) => ({
         id: r.id,
         agentId: r.agent_id,
@@ -249,6 +273,14 @@ export class Store {
     const d = { id: newId("doc"), agentId, title, content, createdAt: now() };
     this.db.prepare("INSERT INTO kb_docs (id, agent_id, title, content, created_at) VALUES (?,?,?,?,?)").run(d.id, agentId, title, content, d.createdAt);
     return d;
+  }
+  getDoc(id: string): KbDoc | undefined {
+    const r: any = this.db.prepare("SELECT * FROM kb_docs WHERE id = ?").get(id);
+    return r ? { id: r.id, agentId: r.agent_id, title: r.title, content: r.content, createdAt: r.created_at } : undefined;
+  }
+  updateDoc(id: string, title: string, content: string): KbDoc | undefined {
+    this.db.prepare("UPDATE kb_docs SET title = ?, content = ? WHERE id = ?").run(title, content, id);
+    return this.getDoc(id);
   }
   deleteDoc(id: string) {
     this.db.prepare("DELETE FROM kb_docs WHERE id = ?").run(id);

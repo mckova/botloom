@@ -1,19 +1,23 @@
 import { useEffect, useState, useCallback } from "react";
-import { Plus } from "lucide-react";
 import { Toaster } from "sonner";
 import { api, type Agent, type NodeType } from "./api";
-import { Mark } from "./components/Mark";
 import Builder from "./views/Builder";
-import Conversations from "./views/Conversations";
+import Inbox, { type Folder } from "./views/Inbox";
 import Runs from "./views/Runs";
 import Knowledge from "./views/Knowledge";
 import Channels from "./views/Channels";
 import Settings from "./views/Settings";
 
-type Tab = "builder" | "conversations" | "runs" | "knowledge" | "channels" | "settings";
+type Page = "inbox" | "agents" | "knowledge" | "reports";
+type Tab = "builder" | "runs" | "knowledge" | "channels" | "settings";
+const PAGES: { id: Page; label: string }[] = [
+  { id: "inbox", label: "Inbox" },
+  { id: "agents", label: "Agents" },
+  { id: "knowledge", label: "Knowledge" },
+  { id: "reports", label: "Reports" },
+];
 const TABS: { id: Tab; label: string }[] = [
   { id: "builder", label: "Flow" },
-  { id: "conversations", label: "Inbox" },
   { id: "runs", label: "Runs" },
   { id: "knowledge", label: "Knowledge" },
   { id: "channels", label: "Channels" },
@@ -41,13 +45,24 @@ export function when(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** Routes: #inbox/<session>, #agents/<agent>/<tab>, #knowledge/<agent>, #reports. */
+function readHash() {
+  const [page, a, b] = location.hash.slice(1).split("/");
+  return { page: (PAGES.some((p) => p.id === page) ? page : "inbox") as Page, a: a || null, b: b || null };
+}
+
 export default function App() {
+  const initial = readHash();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [types, setTypes] = useState<NodeType[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [health, setHealth] = useState<{ llm: string; google: string } | null>(null);
-  const [selected, setSelected] = useState<string | null>(() => location.hash.slice(1).split("/")[0] || null);
-  const [tab, setTab] = useState<Tab>(() => (location.hash.split("/")[1] as Tab) || "builder");
+  const [page, setPage] = useState<Page>(initial.page);
+  const [session, setSession] = useState<string | null>(initial.page === "inbox" ? initial.a : null);
+  const [folder, setFolder] = useState<Folder>({ kind: "waiting" });
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<string | null>(initial.page !== "inbox" ? initial.a : null);
+  const [tab, setTab] = useState<Tab>(() => ((initial.page === "agents" && (initial.b as Tab)) || "builder"));
 
   const refresh = useCallback(async () => setAgents(await api<Agent[]>("/api/agents")), []);
   useEffect(() => {
@@ -56,11 +71,15 @@ export default function App() {
     api<Template[]>("/api/templates").then(setTemplates);
     api("/api/health").then(setHealth);
   }, [refresh]);
+
+  const agent = agents.find((a) => a.id === selected);
+  // The knowledge page always shows one agent's notes; default to the first agent.
+  const kbAgent = agent ?? agents[0];
   useEffect(() => {
-    location.hash = selected ? `${selected}/${tab}` : "";
-    const a = agents.find((x) => x.id === selected);
-    document.title = a ? `${a.name} · BotLoom` : "Agents · BotLoom";
-  }, [selected, tab, agents]);
+    const h = page === "inbox" ? `inbox${session ? `/${session}` : ""}` : page === "agents" ? `agents${selected ? `/${selected}/${tab}` : ""}` : page === "knowledge" ? `knowledge${selected ? `/${selected}` : ""}` : "reports";
+    history.replaceState(null, "", `#${h}`);
+    document.title = `${page === "agents" && agent ? agent.name : PAGES.find((p) => p.id === page)!.label} · BotLoom`;
+  }, [page, session, selected, tab, agent]);
 
   const create = async (templateId?: string) => {
     const a = templateId
@@ -70,111 +89,207 @@ export default function App() {
           json: { name: "Untitled agent", description: "", flow: { nodes: [{ id: "start", type: "trigger.message", position: { x: 0, y: 0 }, config: {} }], edges: [] }, settings: { language: "en" } },
         });
     await refresh();
-    setSelected(a.id);
-    setTab("builder");
+    openAgent(a.id);
   };
-
-  const agent = agents.find((a) => a.id === selected);
+  const openAgent = (id: string | null, t: Tab = "builder") => {
+    setPage("agents");
+    setSelected(id);
+    setTab(t);
+  };
 
   return (
     <>
-    <div className="app">
-      <aside className="sidebar">
-        <button className="wordmark" onClick={() => setSelected(null)}>
-          <Mark />
-          BotLoom
-        </button>
-        <div className="side-section">
-          <span>Agents</span>
-          <button onClick={() => setSelected(null)} aria-label="New agent" title="New agent">
-            <Plus size={15} strokeWidth={1.75} />
+      <div className="shell">
+        <header className="top">
+          <button className="wm" onClick={() => setPage("inbox")}>
+            BotLoom
           </button>
-        </div>
-        <nav className="agent-list" aria-label="Agents">
-          {agents.map((a) => (
-            <button key={a.id} className={`agent-item ${a.id === selected ? "active" : ""}`} onClick={() => setSelected(a.id)} aria-current={a.id === selected ? "page" : undefined}>
-              <span className="truncate" dir="auto">
-                {a.name}
-              </span>
-              {(a.stats?.handoffs ?? 0) > 0 ? <span className="dot handoff" title="Has conversations waiting for a person" /> : <span className="count">{a.stats?.runs ?? 0}</span>}
-            </button>
-          ))}
-        </nav>
-        {health && (
-          <div className="env">
-            <div className="env-row">
-              <span className={`dot ${health.llm === "mock" ? "demo" : "live"}`} aria-hidden="true" />
-              <span>
-                AI <b>{health.llm === "mock" ? "demo provider" : "Claude"}</b>
-              </span>
-            </div>
-            <div className="env-row">
-              <span className={`dot ${health.google === "live" ? "live" : "demo"}`} aria-hidden="true" />
-              <span>
-                Google <b>{health.google === "live" ? "connected" : "sandbox"}</b>
-              </span>
-            </div>
+          <nav className="nav" aria-label="Main">
+            {PAGES.map((p) => (
+              <button key={p.id} className={page === p.id ? "on" : ""} aria-current={page === p.id ? "page" : undefined} onClick={() => setPage(p.id)}>
+                {p.label}
+              </button>
+            ))}
+          </nav>
+          <label className="search glass">
+            <span className="sr-only">Search conversations</span>
+            <input
+              type="search"
+              placeholder="Search conversations"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                if (page !== "inbox") setPage("inbox");
+                if (folder.kind !== "all" && e.target.value) setFolder({ kind: "all" });
+              }}
+            />
+          </label>
+          <span className="user" title={health?.google === "live" ? "Google connected" : "Google calls run in a logged sandbox"}>
+            {health ? (health.llm === "mock" ? "Demo provider" : "Claude Opus 5.5") : ""}
+          </span>
+        </header>
+
+        {page === "inbox" && (
+          <Inbox
+            folder={folder}
+            onFolder={(f) => {
+              setFolder(f);
+              setSession(null);
+            }}
+            selected={session}
+            onSelect={setSession}
+            search={search}
+            onOpenAgent={(id) => openAgent(id)}
+          />
+        )}
+
+        {page === "agents" && (
+          <div className="two">
+            <nav className="glass col folders" aria-label="Agents">
+              <div className="k">Agents</div>
+              <button className={`f ${!agent ? "on" : ""}`} onClick={() => setSelected(null)} aria-current={!agent ? "page" : undefined}>
+                <span>New agent</span>
+                <span className="n" />
+              </button>
+              <div className="k gap">Your agents</div>
+              {agents.map((a) => (
+                <button key={a.id} className={`f ${a.id === selected ? "on" : ""}`} onClick={() => setSelected(a.id)} aria-current={a.id === selected ? "page" : undefined}>
+                  <span className="truncate" dir="auto">
+                    {a.name}
+                  </span>
+                  <span className="n">{a.stats?.runs || ""}</span>
+                </button>
+              ))}
+            </nav>
+            <main className="glass panel">
+              {!agent ? (
+                <Workspace templates={templates} agents={agents} llm={health?.llm} onCreate={create} onOpen={(id) => openAgent(id)} onDesigned={async (id) => {
+                  await refresh();
+                  openAgent(id);
+                }} />
+              ) : (
+                <>
+                  <header className="ph">
+                    <h1 className="truncate" dir="auto">
+                      {agent.name}
+                    </h1>
+                    <nav className="tabs" aria-label="Agent sections">
+                      {TABS.map((t) => (
+                        <button key={t.id} className={tab === t.id ? "on" : ""} aria-current={tab === t.id ? "page" : undefined} onClick={() => setTab(t.id)}>
+                          {t.label}
+                        </button>
+                      ))}
+                    </nav>
+                  </header>
+                  <section className="content">
+                    {tab === "builder" && <Builder key={agent.id} agent={agent} types={types} onSaved={refresh} />}
+                    {tab === "runs" && <Runs agent={agent} types={types} />}
+                    {tab === "knowledge" && <Knowledge agent={agent} />}
+                    {tab === "channels" && <Channels agent={agent} />}
+                    {tab === "settings" && (
+                      <Settings
+                        agent={agent}
+                        onSaved={refresh}
+                        onDeleted={async () => {
+                          setSelected(null);
+                          await refresh();
+                        }}
+                      />
+                    )}
+                  </section>
+                </>
+              )}
+            </main>
           </div>
         )}
-      </aside>
 
-      <main className="main">
-        {!agent ? (
-          <Workspace
-            templates={templates}
-            agents={agents}
-            llm={health?.llm}
-            onCreate={create}
-            onOpen={(id) => {
-              setSelected(id);
-              setTab("builder");
-            }}
-            onDesigned={async (id) => {
-              await refresh();
-              setSelected(id);
-              setTab("builder");
-            }}
-          />
-        ) : (
-          <>
-            <header className="topbar">
-              <div className="topbar-title">
-                <h1 className="truncate" dir="auto">
-                  {agent.name}
-                </h1>
-              </div>
-              <nav className="tabs" aria-label="Agent sections">
-                {TABS.map((t) => (
-                  <button key={t.id} className={tab === t.id ? "active" : ""} aria-current={tab === t.id ? "page" : undefined} onClick={() => setTab(t.id)}>
-                    {t.label}
-                    {t.id === "conversations" && (agent.stats?.handoffs ?? 0) > 0 && <span className="dot handoff" aria-label="waiting for a person" />}
-                  </button>
-                ))}
-              </nav>
-            </header>
-            <section className="content">
-              {tab === "builder" && <Builder key={agent.id} agent={agent} types={types} onSaved={refresh} />}
-              {tab === "conversations" && <Conversations agent={agent} />}
-              {tab === "runs" && <Runs agent={agent} types={types} />}
-              {tab === "knowledge" && <Knowledge agent={agent} />}
-              {tab === "channels" && <Channels agent={agent} />}
-              {tab === "settings" && (
-                <Settings
-                  agent={agent}
-                  onSaved={refresh}
-                  onDeleted={async () => {
-                    setSelected(null);
-                    await refresh();
-                  }}
-                />
-              )}
-            </section>
-          </>
+        {page === "knowledge" && (
+          <div className="two">
+            <nav className="glass col folders" aria-label="Knowledge by agent">
+              <div className="k">Knowledge</div>
+              {agents.map((a) => (
+                <button key={a.id} className={`f ${a.id === kbAgent?.id ? "on" : ""}`} onClick={() => setSelected(a.id)} aria-current={a.id === kbAgent?.id ? "page" : undefined}>
+                  <span className="truncate" dir="auto">
+                    {a.name}
+                  </span>
+                  <span className="n" />
+                </button>
+              ))}
+            </nav>
+            <main className="glass panel">
+              <section className="content">{kbAgent ? <Knowledge key={kbAgent.id} agent={kbAgent} /> : <p className="quiet">Create an agent first.</p>}</section>
+            </main>
+          </div>
         )}
-      </main>
-    </div>
-      <Toaster position="bottom-right" toastOptions={{ style: { fontFamily: "var(--font)", fontSize: 13, borderRadius: 8 } }} />
+
+        {page === "reports" && (
+          <main className="glass panel">
+            <section className="content">
+              <Reports agents={agents} onOpen={(id) => openAgent(id, "runs")} />
+            </section>
+          </main>
+        )}
+      </div>
+      <Toaster position="bottom-right" toastOptions={{ className: "toast" }} />
     </>
+  );
+}
+
+function Reports({ agents, onOpen }: { agents: Agent[]; onOpen: (id: string) => void }) {
+  const sum = (k: "runs" | "handoffs" | "contacts" | "failed") => agents.reduce((n, a) => n + (a.stats?.[k] ?? 0), 0);
+  const runs = sum("runs");
+  const handoffs = sum("handoffs");
+  return (
+    <div className="page wide">
+      <h1>Reports</h1>
+      <p className="lede">Counted from every run your agents have made. A run is one message or trigger handled end to end.</p>
+      <dl className="totals">
+        <div>
+          <dt>Conversations</dt>
+          <dd>{sum("contacts").toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>Runs</dt>
+          <dd>{runs.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>Handled without your team</dt>
+          <dd>{runs ? `${Math.round(((runs - handoffs) / runs) * 100)}%` : "-"}</dd>
+        </div>
+        <div>
+          <dt>Failed runs</dt>
+          <dd>{sum("failed").toLocaleString()}</dd>
+        </div>
+      </dl>
+      <table className="grid">
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th className="n">Conversations</th>
+            <th className="n">Runs</th>
+            <th className="n">Handoffs</th>
+            <th className="n">Failed</th>
+            <th className="n">Avg run</th>
+          </tr>
+        </thead>
+        <tbody>
+          {agents.map((a) => (
+            <tr key={a.id} onClick={() => onOpen(a.id)}>
+              <td>
+                <button className="lnk plain" dir="auto" onClick={() => onOpen(a.id)}>
+                  {a.name}
+                </button>
+              </td>
+              <td className="n">{a.stats?.contacts ?? 0}</td>
+              <td className="n">{a.stats?.runs ?? 0}</td>
+              <td className="n">{a.stats?.handoffs ?? 0}</td>
+              <td className="n">{a.stats?.failed ?? 0}</td>
+              <td className="n">{a.stats?.runs ? `${a.stats.avgMs} ms` : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

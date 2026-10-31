@@ -6,7 +6,7 @@ BotLoom builds customer-facing agents and back-office automations from a descrip
 
 Conversational bots (menus, questions, validation, handoff to a person) and automations (webhooks, schedules, Google Sheets, Calendar, Gmail) run in one resumable engine. Claude (Opus 5.5) is a step type like any other, so a flow can mix fixed steps with an agent that decides for itself.
 
-![Flow builder](docs/screenshots/builder.png)
+![Shared inbox](docs/screenshots/inbox.png)
 
 ## What Claude does in BotLoom
 
@@ -15,9 +15,14 @@ Conversational bots (menus, questions, validation, handoff to a person) and auto
 - **Answers with tools.** The AI agent step can search the knowledge base, look up rows in Google Sheets, check free calendar slots, book appointments (with a double-booking guard), send email, call your API, remember facts about a contact, and hand off to a person.
 - **Remembers contacts.** Facts a customer shares ("I prefer morning appointments") are stored per contact and fed back into later conversations. Card numbers and passwords are refused. Staff can see and delete each fact from the inbox.
 - **Writes the handoff brief.** When an agent hands a chat to a person, Claude writes a short brief: what happened, what the customer wants, mood, urgency and the next step.
-- **Drafts replies for staff.** In the inbox, "Draft reply" writes an answer from the transcript and the knowledge base for a person to edit and send.
+- **Drafts replies for staff.** In the inbox, "Draft with Claude" writes an answer from the transcript and the knowledge base for a person to edit and send.
+- **Shows why it answered.** Every agent answer in the inbox names the knowledge note it came from and quotes the passage. Staff can edit that note in place, or teach a better answer, which becomes a correction note the agent finds next time.
 - **Writes text inside automations.** The AI write step produces an email body or summary from flow variables, with a plain-text fallback path if the call fails.
 - **Routes and extracts.** Intent routing (each intent is an output) and structured extraction into variables, both with JSON-schema outputs.
+
+## The inbox
+
+One inbox for every agent. "Waiting for you" lists the people an agent handed over, oldest first. Each conversation opens with Claude's brief and what the agent remembers about the customer. "Send and hand back" replies and returns the chat to the agent in one step.
 
 ## Channels and integrations
 
@@ -56,8 +61,8 @@ Development: `npm run dev` (API on :8787, UI on :5173). Tests: `npm test`. Docke
 
 | | |
 |---|---|
-| ![Home](docs/screenshots/home.png) | ![Inbox with brief](docs/screenshots/inbox.png) |
-| ![Run trace](docs/screenshots/runs.png) | ![Test chat](docs/screenshots/simulator.png) |
+| ![Edit the note behind an answer](docs/screenshots/edit-note.png) | ![Flow builder](docs/screenshots/builder.png) |
+| ![Run trace](docs/screenshots/runs.png) | ![Reports](docs/screenshots/reports.png) |
 
 ## Architecture
 
@@ -85,4 +90,4 @@ No code execution in templates, an SSRF guard on HTTP steps, a per-agent tool al
 
 ## Tech
 
-TypeScript end to end. Node 22 (`node:sqlite`), Fastify, the Anthropic SDK (Claude Opus 5.5 with adaptive thinking, structured outputs, tool use, streaming and server-side fallbacks), React 19 with React Flow, IBM Plex. 37 Vitest tests cover the engine, channels, security, scheduler, the agent tool loop, designer self-repair, availability, memory, the handoff brief and the flow copilot.
+TypeScript end to end. Node 22 (`node:sqlite`), Fastify, the Anthropic SDK (Claude Opus 5.5 with adaptive thinking, structured outputs, tool use, streaming and server-side fallbacks), React 19 with React Flow, Geist. 42 Vitest tests cover the engine, channels, security, scheduler, the agent tool loop, designer self-repair, availability, memory, the handoff brief, the flow copilot, the shared inbox and answer explanations.

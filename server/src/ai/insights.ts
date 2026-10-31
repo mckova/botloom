@@ -48,12 +48,16 @@ export async function handoffBrief(llm: LlmProvider, session: Session, model?: s
       // fall through to the rule-based brief: a failed brief must never block the handoff
     }
   }
+  const earlier = (lines: string[]) => (lines.length > 1 ? ` Before that: “${lines.at(-2)}”` : "");
   const userLines = session.history.filter((h) => h.role === "user").map((h) => h.text);
   const all = userLines.join(" ");
   const upset = /angry|terrible|worst|refund|complain|כועס|גרוע|נורא|החזר|תלונה|!!/i.test(all);
   const urgent = /urgent|asap|now|today|דחוף|מיד|עכשיו|היום/i.test(all);
   return {
-    summary: userLines.slice(-3).join(" / ") || "No messages yet.",
+    // Plain sentences, never a dump of the transcript: the person reads this before the chat.
+    summary: userLines.length
+      ? `${userLines.length === 1 ? "One message" : `${userLines.length} messages`} from ${session.contactName || "the customer"}. The latest: “${userLines.at(-1)}”${earlier(userLines)}`
+      : "No messages yet.",
     customerWants: String(session.vars.handoff_reason ?? userLines.at(-1) ?? ""),
     sentiment: upset ? "upset" : "neutral",
     urgency: urgent || upset ? "high" : "medium",

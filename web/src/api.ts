@@ -124,3 +124,66 @@ export function isVisible(f: FieldDef, config: Record<string, any>, fields: Fiel
   const allowed = f.showIf.in.map((x) => (x === null ? undefined : x));
   return Array.isArray(v) ? v.some((x) => allowed.includes(x)) : allowed.includes(v);
 }
+
+export interface InboxItem {
+  id: string;
+  agentId: string;
+  agentName: string;
+  channel: string;
+  contactName: string;
+  lastText: string;
+  lastAt: string;
+  handoff: boolean;
+  handedAt?: string;
+  messages: number;
+}
+export interface InboxData {
+  counts: {
+    waiting: number;
+    handled: number;
+    all: number;
+    agents: { id: string; name: string; waiting: number }[];
+    channels: { id: string; waiting: number }[];
+  };
+  items: InboxItem[];
+}
+export interface Brief {
+  summary: string;
+  customerWants: string;
+  sentiment: string;
+  urgency: "low" | "medium" | "high";
+  nextStep: string;
+  by: "claude" | "rules";
+  at?: string;
+}
+export interface SessionDetail extends Session {
+  agentId: string;
+  agentName: string;
+  brief: Brief | null;
+  memory: { id: number; fact: string; at: string }[];
+  firstSeen: string;
+}
+export interface Explanation {
+  index: number;
+  source: "knowledge" | "step" | "ai" | "handoff" | "team";
+  summary: string;
+  doc?: { id: string; title: string; quote: string };
+  query?: string;
+  tools?: string[];
+  nodeId?: string;
+}
+export interface KbDoc {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export const CHANNELS: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  webchat: "Website chat",
+  telegram: "Telegram",
+  test: "Test chat",
+  slack: "Slack",
+  discord: "Discord",
+};
