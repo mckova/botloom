@@ -8,7 +8,7 @@ defineNode({
   category: "trigger",
   label: "On message",
   description: "Starts a conversation when a contact writes on any connected channel.",
-  icon: "💬",
+  icon: "message-square",
   trigger: true,
   fields: [
     { key: "keywords", label: "Keywords (optional)", kind: "text", placeholder: "hi, start, שלום", help: "Comma separated. Empty = any message." },
@@ -29,7 +29,7 @@ defineNode({
   category: "trigger",
   label: "On webhook",
   description: "Starts an automation when an external system POSTs to /hooks/:agentId/:key.",
-  icon: "🪝",
+  icon: "webhook",
   trigger: true,
   fields: [{ key: "key", label: "Hook key", kind: "text", default: "new-lead", help: "POST /hooks/<agentId>/<key>; body is available as {{message.payload}}" }],
   ports: () => ["out"],
@@ -41,7 +41,7 @@ defineNode({
   category: "trigger",
   label: "On schedule",
   description: "Runs an automation every N minutes or every day at a fixed time.",
-  icon: "⏰",
+  icon: "calendar-clock",
   trigger: true,
   fields: [
     {
@@ -67,7 +67,7 @@ defineNode({
   category: "message",
   label: "Send message",
   description: "Sends text (and optional buttons) to the contact.",
-  icon: "📤",
+  icon: "send",
   fields: [
     { key: "text", label: "Text", kind: "textarea", placeholder: "Hi {{contact.name}}!" },
     { key: "buttons", label: "Buttons (one per line)", kind: "lines", help: "Buttons do not wait; use Ask for a choice." },
@@ -96,7 +96,7 @@ defineNode({
   category: "message",
   label: "Ask question",
   description: "Asks a question, waits for the reply, validates it and saves it to a variable.",
-  icon: "❓",
+  icon: "circle-help",
   fields: [
     { key: "question", label: "Question", kind: "textarea" },
     { key: "variable", label: "Save answer to variable", kind: "text", default: "answer" },
@@ -166,7 +166,7 @@ defineNode({
   category: "message",
   label: "Hand off to human",
   description: "Pauses the bot for this contact and flags the conversation for a team member.",
-  icon: "🙋",
+  icon: "user",
   fields: [{ key: "text", label: "Message to contact", kind: "text", default: "A team member will continue with you shortly." }],
   ports: () => [],
   run: async (ctx, node) => {
@@ -180,7 +180,7 @@ defineNode({
   category: "logic",
   label: "End",
   description: "Ends the conversation. Optionally clears the collected variables.",
-  icon: "🏁",
+  icon: "square",
   fields: [{ key: "reset", label: "Clear variables", kind: "boolean", default: false }],
   ports: () => [],
   run: async (ctx, node) => {
@@ -211,7 +211,7 @@ defineNode({
   category: "logic",
   label: "Condition",
   description: "Branches on a comparison.",
-  icon: "🔀",
+  icon: "git-branch",
   fields: [
     { key: "left", label: "Value", kind: "text", placeholder: "{{vars.budget}}" },
     { key: "op", label: "Operator", kind: "select", default: "equals", options: Object.keys(OPS).map((v) => ({ value: v, label: v })) },
@@ -232,7 +232,7 @@ defineNode({
   category: "logic",
   label: "Set variables",
   description: "Assigns values (templates allowed) to session variables.",
-  icon: "🧮",
+  icon: "variable",
   fields: [{ key: "assign", label: "Assignments", kind: "keyvalue", help: "variable → value / {{template}}" }],
   ports: () => ["out"],
   run: async (ctx, node) => {
@@ -247,7 +247,7 @@ defineNode({
   category: "logic",
   label: "Delay",
   description: "Waits a few seconds (typing effect / rate limiting). Max 10 s.",
-  icon: "⏳",
+  icon: "timer",
   fields: [{ key: "seconds", label: "Seconds", kind: "number", default: 1 }],
   ports: () => ["out"],
   run: async (_ctx, node) => {

@@ -141,6 +141,7 @@ export class ChannelHub {
 
   async send(agentId: string, kind: string, to: string, msg: OutMessage): Promise<DeliveryResult> {
     if (kind === "webchat" || kind === "test" || kind === "webhook" || kind === "schedule") return { delivered: true, detail: "returned in response" };
+    if (kind === "slack" || kind === "discord") return this.sendTeamChat(agentId, kind, to, msg);
     const ch = this.channel(agentId, kind);
     if (!ch) {
       this.store.logIntegration({ agentId, service: kind, action: "send", mode: "sandbox", request: { to, msg }, response: { note: "channel not connected" } });
@@ -155,6 +156,34 @@ export class ChannelHub {
             : { delivered: false, detail: `unknown channel ${kind}` };
       this.store.logIntegration({ agentId, service: kind, action: "send", mode: "live", request: { to, text: msg.text }, response: res });
       return res;
+    } catch (err: any) {
+      return { delivered: false, detail: String(err.message ?? err) };
+    }
+  }
+
+  /**
+   * Team chat alerts through an incoming webhook. `to` is the webhook URL, or empty to use the one saved
+   * for the agent. Only the official Slack / Discord webhook hosts are accepted.
+   */
+  private async sendTeamChat(agentId: string, kind: "slack" | "discord", to: string, msg: OutMessage): Promise<DeliveryResult> {
+    const url = /^https:\/\//.test(to) ? to : this.channel(agentId, kind)?.config.webhookUrl;
+    const text = [msg.text, ...(msg.buttons ?? []).map((b, i) => `${i + 1}. ${b.label}`)].filter(Boolean).join("\n");
+    if (!url) {
+      this.store.logIntegration({ agentId, service: kind, action: "send", mode: "sandbox", request: { text }, response: { note: "no webhook URL" } });
+      return { delivered: false, detail: `${kind} webhook not configured (logged in sandbox)` };
+    }
+    const host = new URL(url).hostname;
+    const allowed = kind === "slack" ? host === "hooks.slack.com" : host === "discord.com" || host === "discordapp.com";
+    if (!allowed) return { delivered: false, detail: `${kind} webhook must be on the official ${kind} host` };
+    try {
+      const res = await this.http(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(kind === "slack" ? { text } : { content: text.slice(0, 2000) }),
+      });
+      const out = { delivered: res.ok, detail: res.ok ? undefined : `HTTP ${res.status}` };
+      this.store.logIntegration({ agentId, service: kind, action: "send", mode: "live", request: { text }, response: out });
+      return out;
     } catch (err: any) {
       return { delivered: false, detail: String(err.message ?? err) };
     }

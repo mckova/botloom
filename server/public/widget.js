@@ -1,12 +1,12 @@
 /* BotLoom web chat widget. Embed:
- * <script src="https://YOUR-SERVER/widget.js" data-agent="agt_xxx" data-color="#6d5dfc" async></script>
+ * <script src="https://YOUR-SERVER/widget.js" data-agent="agt_xxx" data-color="#b4441f" async></script>
  * No dependencies, Shadow DOM isolated, RTL aware. */
 (function () {
   var script = document.currentScript;
   var agentId = script && script.getAttribute("data-agent");
   if (!agentId) return console.warn("[BotLoom] data-agent missing");
   var base = new URL(script.src).origin;
-  var color = script.getAttribute("data-color") || "#6d5dfc";
+  var color = script.getAttribute("data-color") || "#b4441f";
   var key = "botloom_visitor_" + agentId;
   var visitor = localStorage.getItem(key);
   if (!visitor) {
@@ -29,7 +29,7 @@
     "form{display:flex;border-top:1px solid #eee}input{flex:1;border:0;padding:14px;font-size:14px;outline:none;unicode-bidi:plaintext}form button{border:0;background:none;color:" + color + ";font-weight:600;padding:0 16px;cursor:pointer}" +
     ".typing{color:#888;font-size:12px;padding:0 4px}" +
     "</style>" +
-    "<button class='fab' aria-label='Chat'>💬</button>" +
+    "<button class='fab' aria-label='Open chat'><svg width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'><path d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/></svg></button>" +
     "<div class='panel' role='dialog'><div class='head'>Chat</div><div class='log'></div>" +
     "<form><input placeholder='Type a message…' aria-label='Message'/><button>Send</button></form></div>";
   var panel = root.querySelector(".panel");

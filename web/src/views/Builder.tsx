@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
+
   Handle,
   Position,
   addEdge,
@@ -15,19 +15,15 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { api, portsFor, type Agent, type FlowNode, type NodeType } from "../api";
+import { toast } from "sonner";
+import { Pencil } from "lucide-react";
+import { NodeIcon, CATEGORY_COLORS } from "../components/NodeIcon";
 import ConfigPanel from "./ConfigPanel";
 import Simulator from "./Simulator";
 
 type BLData = { node: FlowNode; def?: NodeType; active?: boolean };
 type BLNode = Node<BLData, "bl">;
 
-const CATEGORY_COLORS: Record<string, string> = {
-  trigger: "#10b981",
-  message: "#6d5dfc",
-  logic: "#f59e0b",
-  ai: "#ec4899",
-  integration: "#0ea5e9",
-};
 
 function BotLoomNode({ data, selected }: NodeProps<BLNode>) {
   const { node, def } = data;
@@ -35,12 +31,13 @@ function BotLoomNode({ data, selected }: NodeProps<BLNode>) {
   const color = CATEGORY_COLORS[def?.category ?? "logic"];
   const preview = String(node.config.text ?? node.config.question ?? node.config.instructions ?? node.config.url ?? node.config.key ?? "").slice(0, 70);
   return (
-    <div className={`fnode ${selected ? "selected" : ""} ${data.active ? "active" : ""}`} style={{ borderTopColor: color }}>
+    <div className={`fnode ${selected ? "selected" : ""} ${data.active ? "active" : ""}`} style={{ ["--cat" as any]: color }}>
       {!def?.trigger && <Handle type="target" position={Position.Left} />}
       <div className="fnode-head">
-        <span>{def?.icon ?? "❔"}</span>
+        <NodeIcon type={node.type} />
         <b dir="auto">{node.label || def?.label || node.type}</b>
       </div>
+      {node.label && def?.label && node.label !== def.label && <div className="fnode-type">{def.label}</div>}
       {preview && (
         <div className="fnode-body" dir="auto">
           {preview}
@@ -72,6 +69,8 @@ function toRF(agent: Agent, types: NodeType[]) {
   return { nodes, edges };
 }
 
+const CAT_LABELS: Record<string, string> = { trigger: "Triggers", message: "Messages", logic: "Logic", ai: "AI", integration: "Integrations" };
+
 export default function Builder({ agent, types, onSaved }: { agent: Agent; types: NodeType[]; onSaved: () => void }) {
   const initial = useMemo(() => toRF(agent, types), [agent.id, types.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const [nodes, setNodes, onNodesChange] = useNodesState<BLNode>(initial.nodes);
@@ -80,6 +79,13 @@ export default function Builder({ agent, types, onSaved }: { agent: Agent; types
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
   const [showSim, setShowSim] = useState(true);
+  const flowRef = useRef<{ fitView: (o?: object) => unknown } | null>(null);
+  const FIT = { padding: { top: 0.14, left: 0.05, right: 0.05, bottom: 0.05 }, maxZoom: 1 };
+  // The canvas changes width when the side panel opens or closes; refit so the flow stays readable.
+  useEffect(() => {
+    const t = setTimeout(() => flowRef.current?.fitView({ ...FIT, duration: 160 }), 60);
+    return () => clearTimeout(t);
+  }, [showSim]);
   const [activeNodes, setActiveNodes] = useState<string[]>([]);
 
   useEffect(() => {
@@ -132,11 +138,22 @@ export default function Builder({ agent, types, onSaved }: { agent: Agent; types
       const res = await api<Agent>(`/api/agents/${agent.id}`, { method: "PUT", json: { name: agent.name, description: agent.description, settings: agent.settings, flow } });
       setDirty(false);
       const w = res.validation?.warnings ?? [];
-      setStatus(w.length ? { kind: "warn", text: `Saved with ${w.length} warning(s): ${w.join("; ")}` } : { kind: "ok", text: "Saved" });
+      setStatus(w.length ? { kind: "warn", text: `Saved with ${w.length} warning${w.length === 1 ? "" : "s"}: ${w.join("; ")}` } : null);
+      if (!w.length) toast.success("Flow saved");
       onSaved();
     } catch (e: any) {
       setStatus({ kind: "err", text: e.message });
     }
+  };
+
+  /** Put a flow proposed by the AI copilot on the canvas; the user reviews it and saves (or reloads to discard). */
+  const applyProposal = (flow: Agent["flow"]) => {
+    const r = toRF({ ...agent, flow }, types);
+    setNodes(r.nodes);
+    setEdges(r.edges);
+    setSelectedId(null);
+    setDirty(true);
+    setStatus({ kind: "warn", text: "Claude's changes are on the canvas. Review them, then save." });
   };
 
   const selected = nodes.find((n) => n.id === selectedId);
@@ -147,16 +164,17 @@ export default function Builder({ agent, types, onSaved }: { agent: Agent; types
   }, [types]);
 
   return (
-    <div className="builder">
+    <div className={`builder ${!selected && !showSim ? "no-side" : ""}`}>
       <div className="palette">
         {Object.entries(grouped).map(([cat, defs]) => (
           <div key={cat}>
-            <div className="palette-cat" style={{ color: CATEGORY_COLORS[cat] }}>
-              {cat}
+            <div className="palette-cat">
+              {CAT_LABELS[cat] ?? cat}
             </div>
             {defs.map((d) => (
-              <button key={d.type} className="palette-item" title={d.description} onClick={() => addNode(d)}>
-                <span>{d.icon}</span> {d.label}
+              <button key={d.type} className="palette-item" style={{ ["--cat" as any]: CATEGORY_COLORS[cat] }} title={d.description} onClick={() => addNode(d)}>
+                <NodeIcon type={d.type} size={15} />
+                <span className="palette-label">{d.label}</span>
               </button>
             ))}
           </div>
@@ -164,12 +182,27 @@ export default function Builder({ agent, types, onSaved }: { agent: Agent; types
       </div>
 
       <div className="canvas">
+        {status && (
+          <div className={`status ${status.kind}`} role="status" style={{ position: "absolute", zIndex: 10, bottom: 12, left: "50%", transform: "translateX(-50%)", maxWidth: "70%" }}>
+            {status.text}
+          </div>
+        )}
         <div className="canvas-toolbar">
-          <button className="primary" onClick={save} disabled={!dirty}>
-            {dirty ? "Save flow" : "Saved"}
-          </button>
-          <button onClick={() => setShowSim((s) => !s)}>{showSim ? "Hide" : "Show"} simulator</button>
-          {status && <span className={`status ${status.kind}`}>{status.text}</span>}
+          <Copilot agentId={agent.id} onApply={applyProposal} />
+          <div className="toolbar-actions">
+            <button onClick={() => setShowSim((s) => !s)} aria-pressed={showSim}>
+              {showSim ? "Hide test chat" : "Test chat"}
+            </button>
+            {dirty ? (
+              <button className="primary" onClick={save}>
+                Save
+              </button>
+            ) : (
+              <span className="saved-state" role="status">
+                Saved
+              </span>
+            )}
+          </div>
         </div>
         <ReactFlow
           nodes={nodes}
@@ -188,12 +221,12 @@ export default function Builder({ agent, types, onSaved }: { agent: Agent; types
           onPaneClick={() => setSelectedId(null)}
           deleteKeyCode={["Delete"]}
           fitView
-          fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
+          fitViewOptions={FIT}
+          onInit={(inst) => (flowRef.current = inst)}
           minZoom={0.2}
         >
-          <Background gap={20} />
+          <Background gap={18} size={1.2} />
           <Controls />
-          <MiniMap pannable zoomable />
         </ReactFlow>
       </div>
 
@@ -208,6 +241,100 @@ export default function Builder({ agent, types, onSaved }: { agent: Agent; types
         />
       ) : (
         showSim && <Simulator agent={agent} dirty={dirty} onTrace={setActiveNodes} onActivity={onSaved} />
+      )}
+    </div>
+  );
+}
+
+/** Flow copilot: describe a change in plain language, Claude edits the flow and explains what it changed. */
+function Copilot({ agentId, onApply }: { agentId: string; onApply: (flow: Agent["flow"]) => void }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [proposal, setProposal] = useState<{ flow: Agent["flow"]; notes: string[]; validation: { errors: string[]; warnings: string[] } } | null>(null);
+  const ask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (text.trim().length < 4) {
+      setError("Describe the change in a few words, e.g. add a step that asks for the order number.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setProposal(null);
+    try {
+      setProposal(await api(`/api/agents/${agentId}/revise`, { method: "POST", json: { instruction: text } }));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) && !t.isContentEditable) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div className="command">
+      <form onSubmit={ask}>
+        <Pencil size={14} strokeWidth={1.75} aria-hidden="true" color="var(--ink-faint)" />
+        <label className="sr-only" htmlFor="copilot-input">
+          Describe a change to this flow
+        </label>
+        <input ref={inputRef} id="copilot-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="Describe a change, e.g. ping Slack on new leads" dir="auto" />
+        {!text && (
+          <span className="kbd" aria-hidden="true">
+            /
+          </span>
+        )}
+        <button className="dark sm" disabled={busy} aria-busy={busy}>
+          {busy ? "Editing…" : "Edit with Claude"}
+        </button>
+      </form>
+      {error && (
+        <div className="proposal">
+          <span className="err small" role="alert">
+            {error}
+          </span>
+        </div>
+      )}
+      {proposal && (
+        <div className="proposal" aria-live="polite">
+          <span className="small soft">Claude changed:</span>
+          <ul>
+            {proposal.notes.map((n, i) => (
+              <li key={i} dir="auto">
+                {n}
+              </li>
+            ))}
+          </ul>
+          <div className="row">
+            <span className="muted small num">
+              {proposal.flow.nodes.length} steps · {proposal.validation.errors.length ? `${proposal.validation.errors.length} problems` : "graph checks pass"}
+            </span>
+            <span className="spacer" />
+            <button className="ghost sm" onClick={() => setProposal(null)}>
+              Discard
+            </button>
+            <button
+              className="primary sm"
+              onClick={() => {
+                onApply(proposal.flow);
+                setProposal(null);
+                setText("");
+              }}
+            >
+              Apply
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

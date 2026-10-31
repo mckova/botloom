@@ -6,6 +6,7 @@ import "./nodes/integrations.js";
 import { getNodeDef, type NodeResult, type RunContext, type Services } from "./registry.js";
 import type { Agent, FlowNode, InboundEvent, OutMessage, RunRecord, Session, TraceStep } from "./types.js";
 import { newId, now } from "../db.js";
+import { handoffBrief } from "../ai/insights.js";
 
 const MAX_STEPS = 60;
 const RESET = /^\/(restart|start|reset)$|^(התחל מחדש|מההתחלה)$/i;
@@ -176,6 +177,8 @@ export class Engine {
       const he = agent.settings.language === "he";
       outbox.push({ text: he ? "אופס, משהו השתבש. נסו שוב בעוד רגע." : "Oops, something went wrong. Please try again in a moment." });
     }
+    // The conversation just reached the human inbox: brief the team member.
+    if (session.handoff && !session.vars.__brief) session.vars.__brief = await handoffBrief(this.services.llm, session, agent.settings.model);
     return finish();
   }
 }

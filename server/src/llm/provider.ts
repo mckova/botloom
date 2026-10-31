@@ -35,5 +35,7 @@ export interface LlmProvider {
   classify(text: string, labels: { id: string; description: string }[], model?: string): Promise<string | null>;
   /** Structured JSON generation against a JSON schema (used by the AI flow designer). */
   json(prompt: string, schema: Record<string, unknown>, opts?: { model?: string; system?: string; effort?: "low" | "medium" | "high" }): Promise<any>;
+  /** Free-form text generation (automations: summaries, drafts, translations). */
+  generate(prompt: string, opts?: { model?: string; system?: string; effort?: "low" | "medium" | "high" }): Promise<{ text: string; usage?: { inputTokens: number; outputTokens: number } }>;
   extract(text: string, fields: { name: string; description: string }[], model?: string): Promise<Record<string, string | null>>;
 }

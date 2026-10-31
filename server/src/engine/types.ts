@@ -1,6 +1,6 @@
 // Core domain types for BotLoom flows, runs and messages.
 
-export type ChannelKind = "webchat" | "telegram" | "whatsapp" | "webhook" | "schedule" | "test";
+export type ChannelKind = "webchat" | "telegram" | "whatsapp" | "slack" | "discord" | "webhook" | "schedule" | "test";
 
 /** A channel-agnostic outgoing message. Adapters downgrade what a channel cannot render. */
 export interface OutMessage {

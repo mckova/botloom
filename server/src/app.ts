@@ -16,7 +16,9 @@ import { AnthropicProvider } from "./llm/anthropic.js";
 import { MockProvider } from "./llm/mock.js";
 import type { LlmProvider } from "./llm/provider.js";
 import { TEMPLATES } from "./templates.js";
-import { designAgent } from "./ai/designer.js";
+import { designAgent, reviseAgent } from "./ai/designer.js";
+import { AGENT_TOOLS } from "./engine/nodes/ai.js";
+import { chunk, search } from "./knowledge/bm25.js";
 
 export interface AppOptions {
   store?: Store;
@@ -93,6 +95,13 @@ export function validateFlow(flow: Flow): { errors: string[]; warnings: string[]
   for (const n of flow.nodes) if (!state.get(n.id)) visit(n.id, []);
   return { errors, warnings };
 }
+
+/** Claude conversations must start with a user turn. */
+const trimToUserFirst = <T extends { role: string }>(h: T[]) => {
+  const out = [...h];
+  while (out.length && out[0].role !== "user") out.shift();
+  return out;
+};
 
 const mask = (v: unknown) => (typeof v === "string" && v.length > 8 ? `${v.slice(0, 4)}…${v.slice(-4)}` : v ? "••••" : "");
 
@@ -179,6 +188,20 @@ export async function buildApp(opts: AppOptions = {}) {
       return reply.code(502).send({ error: String(err.message ?? err) });
     }
   });
+  // Flow copilot: Claude edits the existing agent from a plain-language instruction. Returns a
+  // validated proposal; nothing is saved until the user applies it in the builder.
+  app.post("/api/agents/:id/revise", async (req: any, reply) => {
+    const a = agentOr404(req.params.id, reply);
+    if (!a) return;
+    const instruction = String(req.body?.instruction ?? "").trim();
+    if (instruction.length < 4) return reply.code(400).send({ error: "Write what to change" });
+    try {
+      const d = await reviseAgent(llm, a, instruction.slice(0, 4000), validateFlow);
+      return { flow: d.flow, systemPrompt: d.systemPrompt, notes: d.notes, docs: d.docs, validation: validateFlow(d.flow) };
+    } catch (err: any) {
+      return reply.code(llm.name === "mock" ? 400 : 502).send({ error: String(err.message ?? err) });
+    }
+  });
   app.get("/api/agents/:id", async (req: any, reply) => {
     const a = agentOr404(req.params.id, reply);
     return a && { ...a, validation: validateFlow(a.flow), stats: store.stats(a.id) };
@@ -238,7 +261,42 @@ export async function buildApp(opts: AppOptions = {}) {
     if (!s) return reply.code(404).send({ error: "Session not found" });
     s.handoff = false;
     s.wait = null;
+    delete s.vars.__brief;
     store.saveSession(s);
+    return { ok: true };
+  });
+  // AI copilot for the team member: Claude drafts the next reply from the transcript and knowledge base.
+  app.post("/api/sessions/:sid/suggest", async (req: any, reply) => {
+    const s = store.getSession(req.params.sid);
+    const agent = s && store.getAgent(s.agentId);
+    if (!s || !agent) return reply.code(404).send({ error: "Session not found" });
+    const lastUser = [...s.history].reverse().find((h) => h.role === "user");
+    if (!lastUser) return reply.code(400).send({ error: "No customer message to answer" });
+    const chunks = store.listDocs(agent.id).flatMap((d) => chunk(d.id, d.title, d.content));
+    const result = await llm.runAgent({
+      model: agent.settings.model,
+      system: [
+        agent.settings.systemPrompt ?? "",
+        "You draft the next reply for a human support agent who took over this chat. Write only the message text, short, in the customer's language. Check facts with knowledge_search; if it has no answer, draft a polite holding reply.",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      history: trimToUserFirst(s.history.slice(-12, -1).map((h) => ({ role: h.role, text: h.text.replace(/^\[team\] /, "") }))),
+      userText: lastUser.text,
+      tools: [AGENT_TOOLS.knowledge_search.spec],
+      executeTool: async (_name, input) => JSON.stringify({ results: search(chunks, String(input.query ?? ""), 3) }),
+    });
+    return { draft: result.text, provider: result.provider };
+  });
+  app.get("/api/sessions/:sid/memory", async (req: any, reply) => {
+    const s = store.getSession(req.params.sid);
+    if (!s) return reply.code(404).send({ error: "Session not found" });
+    return store.listMemory(s.agentId, `${s.channel}:${s.contactId}`);
+  });
+  app.delete("/api/sessions/:sid/memory/:mid", async (req: any, reply) => {
+    const s = store.getSession(req.params.sid);
+    if (!s) return reply.code(404).send({ error: "Session not found" });
+    store.forgetMemory(s.agentId, `${s.channel}:${s.contactId}`, Number(req.params.mid));
     return { ok: true };
   });
 
@@ -259,12 +317,12 @@ export async function buildApp(opts: AppOptions = {}) {
   app.get("/api/agents/:id/channels", async (req: any) =>
     store.listChannels(req.params.id).map((c) => ({
       ...c,
-      config: Object.fromEntries(Object.entries(c.config).map(([k, v]) => [k, /token|secret/i.test(k) ? mask(v) : v])),
+      config: Object.fromEntries(Object.entries(c.config).map(([k, v]) => [k, /token|secret|webhookurl/i.test(k) ? mask(v) : v])),
     })),
   );
   app.put("/api/agents/:id/channels/:kind", async (req: any, reply) => {
     const kind = req.params.kind as ChannelKind;
-    if (!["telegram", "whatsapp", "webchat"].includes(kind)) return reply.code(400).send({ error: "Unsupported channel" });
+    if (!["telegram", "whatsapp", "webchat", "slack", "discord"].includes(kind)) return reply.code(400).send({ error: "Unsupported channel" });
     const cfg = Object.fromEntries(Object.entries(req.body?.config ?? {}).filter(([, v]) => typeof v === "string" && v && !String(v).includes("…") && v !== "••••"));
     if (kind === "telegram" && !store.listChannels(req.params.id).find((c) => c.kind === "telegram")) cfg.webhookSecret = randomBytes(16).toString("hex");
     if (kind === "whatsapp" && !cfg.verifyToken && !store.listChannels(req.params.id).find((c) => c.kind === "whatsapp")) cfg.verifyToken = randomBytes(12).toString("hex");

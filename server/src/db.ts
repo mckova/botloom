@@ -69,6 +69,9 @@ export class Store {
         config TEXT NOT NULL, UNIQUE(agent_id, kind));
       CREATE TABLE IF NOT EXISTS kb_docs (
         id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS contact_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, contact TEXT NOT NULL, fact TEXT NOT NULL, at TEXT NOT NULL,
+        UNIQUE(agent_id, contact, fact));
       CREATE TABLE IF NOT EXISTS integration_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, service TEXT NOT NULL, action TEXT NOT NULL,
         mode TEXT NOT NULL, request TEXT, response TEXT, at TEXT NOT NULL);
@@ -107,7 +110,7 @@ export class Store {
     return this.getAgent(a.id)!;
   }
   deleteAgent(id: string) {
-    for (const t of ["sessions", "runs", "channels", "kb_docs", "integration_log"])
+    for (const t of ["sessions", "runs", "channels", "kb_docs", "integration_log", "contact_memory"])
       this.db.prepare(`DELETE FROM ${t} WHERE agent_id = ?`).run(id);
     this.db.prepare("DELETE FROM agents WHERE id = ?").run(id);
   }
@@ -251,16 +254,35 @@ export class Store {
     this.db.prepare("DELETE FROM kb_docs WHERE id = ?").run(id);
   }
 
+  // ---------- long-term contact memory ----------
+  // Facts the agent chose to remember about a contact. They survive /restart and new sessions.
+  listMemory(agentId: string, contact: string): { id: number; fact: string; at: string }[] {
+    return this.db
+      .prepare("SELECT id, fact, at FROM contact_memory WHERE agent_id = ? AND contact = ? ORDER BY id")
+      .all(agentId, contact) as any[];
+  }
+  addMemory(agentId: string, contact: string, fact: string, cap = 30) {
+    this.db.prepare("INSERT OR IGNORE INTO contact_memory (agent_id, contact, fact, at) VALUES (?,?,?,?)").run(agentId, contact, fact.slice(0, 300), now());
+    // Keep the newest `cap` facts.
+    this.db
+      .prepare("DELETE FROM contact_memory WHERE agent_id = ? AND contact = ? AND id NOT IN (SELECT id FROM contact_memory WHERE agent_id = ? AND contact = ? ORDER BY id DESC LIMIT ?)")
+      .run(agentId, contact, agentId, contact, cap);
+  }
+  forgetMemory(agentId: string, contact: string, id?: number) {
+    if (id === undefined) this.db.prepare("DELETE FROM contact_memory WHERE agent_id = ? AND contact = ?").run(agentId, contact);
+    else this.db.prepare("DELETE FROM contact_memory WHERE agent_id = ? AND contact = ? AND id = ?").run(agentId, contact, id);
+  }
+
   // ---------- integration log ----------
   logIntegration(e: Omit<IntegrationLog, "id" | "at">) {
     this.db
       .prepare("INSERT INTO integration_log (agent_id, service, action, mode, request, response, at) VALUES (?,?,?,?,?,?,?)")
       .run(e.agentId, e.service, e.action, e.mode, j(e.request), j(e.response), now());
   }
-  listIntegrationLog(agentId: string): IntegrationLog[] {
+  listIntegrationLog(agentId: string, limit = 100): IntegrationLog[] {
     return this.db
-      .prepare("SELECT * FROM integration_log WHERE agent_id = ? ORDER BY id DESC LIMIT 100")
-      .all(agentId)
+      .prepare("SELECT * FROM integration_log WHERE agent_id = ? ORDER BY id DESC LIMIT ?")
+      .all(agentId, limit)
       .map((r: any) => ({ ...r, agentId: r.agent_id, request: p(r.request, null), response: p(r.response, null) }));
   }
 }

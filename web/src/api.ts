@@ -112,6 +112,7 @@ export function parseLines(v: unknown): { id: string; description: string }[] {
 export function portsFor(node: FlowNode, def?: NodeType): string[] {
   if (node.type === "message.ask" && node.config.validate === "choice") return [...parseLines(node.config.choices).map((c) => c.id), "invalid"];
   if (node.type === "ai.intent") return [...parseLines(node.config.intents).map((c) => c.id), "fallback"];
+  if (node.type === "google.calendar.create" && node.config.checkBusy === false) return ["out", "error"];
   return def?.ports ?? ["out"];
 }
 

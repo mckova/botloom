@@ -27,7 +27,7 @@ export default function Simulator({ agent, dirty, onTrace, onActivity }: { agent
     try {
       const r = await api(`/api/agents/${agent.id}/chat`, { method: "POST", json: { contactId: contact, contactName: he ? "מאיה" : "Maya", text: t, buttonId } });
       setLines((l) => [...l, ...r.messages.map((m: OutMessage) => ({ who: "bot" as const, msg: m }))]);
-      if (r.run.status === "handoff") setLines((l) => [...l, { who: "sys", msg: { text: "Conversation handed to a human (see Conversations)" } }]);
+      if (r.run.status === "handoff") setLines((l) => [...l, { who: "sys", msg: { text: "Handed to a person. Reply from the Inbox." } }]);
       if (r.run.status === "failed") setLines((l) => [...l, { who: "sys", msg: { text: `Run failed: ${r.run.error}` } }]);
       setLastRun(r.run);
       setVars(Object.fromEntries(Object.entries(r.session.vars).filter(([k]) => !k.startsWith("__"))));
@@ -43,15 +43,25 @@ export default function Simulator({ agent, dirty, onTrace, onActivity }: { agent
   return (
     <div className="panel-right sim">
       <div className="panel-head">
-        <b>Test chat</b>
+        <h2>Test chat</h2>
+        <span className="muted small">{he ? "מאיה" : "Maya"}, test contact</span>
         <span className="spacer" />
-        <button className="ghost small" onClick={() => send("/restart")}>
+        <button className="ghost sm" onClick={() => send("/restart")}>
           Restart
         </button>
       </div>
-      {dirty && <div className="status warn small">Unsaved changes: save the flow to test them.</div>}
+      {dirty && (
+        <div className="status warn small" style={{ borderRadius: 0 }}>
+          Unsaved changes. Save the flow to test them.
+        </div>
+      )}
       <div className="sim-log" ref={logRef} dir={he ? "rtl" : "ltr"}>
-        {lines.length === 0 && <div className="muted small">Say hi to start the flow. Nodes that run light up on the canvas.</div>}
+        {lines.length === 0 && (
+          <div className="empty small" dir="ltr">
+            <b>Say hi to start</b>
+            <span>Steps light up on the canvas as they run.</span>
+          </div>
+        )}
         {lines.map((l, i) => (
           <div key={i} className={`bubble ${l.who}`}>
             {l.msg.text && <div>{l.msg.text}</div>}
@@ -83,12 +93,12 @@ export default function Simulator({ agent, dirty, onTrace, onActivity }: { agent
       {lastRun && (
         <details className="sim-debug">
           <summary>
-            Last run: {lastRun.status} · {lastRun.steps.length} steps · {lastRun.ms} ms
+            Last run: {lastRun.status} · {lastRun.steps.length} {lastRun.steps.length === 1 ? "step" : "steps"} · {lastRun.ms} ms
           </summary>
           <div className="small">
             {lastRun.steps.map((s, i) => (
               <div key={i}>
-                {s.error ? "❌" : "✓"} {s.nodeId} <span className="muted">({s.type}{s.port ? ` → ${s.port}` : ""}, {s.ms} ms)</span>
+                <span className={`dot ${s.error ? "failed" : "completed"}`} aria-hidden="true" /> <span className="mono">{s.nodeId}</span> <span className="muted">{s.port ? `${s.port} · ` : ""}{s.ms} ms</span>
               </div>
             ))}
           </div>

@@ -156,6 +156,9 @@ describe("AI agent tool gating", () => {
       async classify() {
         return null;
       },
+      async generate() {
+        return { text: "" };
+      },
       async json() {
         return null;
       },

@@ -18,7 +18,7 @@ defineNode({
   category: "integration",
   label: "HTTP request",
   description: "Calls any REST API / webhook (Make, Zapier, your backend). Private network addresses are blocked by default.",
-  icon: "🌐",
+  icon: "globe",
   fields: [
     { key: "method", label: "Method", kind: "select", default: "POST", options: ["GET", "POST", "PUT", "PATCH", "DELETE"].map((v) => ({ value: v, label: v })) },
     { key: "url", label: "URL", kind: "text", placeholder: "https://api.example.com/leads" },
@@ -62,7 +62,7 @@ defineNode({
   category: "integration",
   label: "Google Sheets: add row",
   description: "Appends a row to a spreadsheet (lead lists, orders, registrations).",
-  icon: "📊",
+  icon: "sheet",
   fields: [
     { key: "spreadsheetId", label: "Spreadsheet id", kind: "text" },
     { key: "sheet", label: "Tab", kind: "text", default: "Sheet1" },
@@ -84,23 +84,89 @@ defineNode({
 });
 
 defineNode({
+  type: "google.sheets.lookup",
+  category: "integration",
+  label: "Google Sheets: find row",
+  description: "Finds the first row whose column matches a value (customer record, order status, price list) and saves it as a variable.",
+  icon: "table-properties",
+  fields: [
+    { key: "spreadsheetId", label: "Spreadsheet id", kind: "text" },
+    { key: "sheet", label: "Tab", kind: "text", default: "Sheet1" },
+    { key: "column", label: "Column to search (letter, number or header name)", kind: "text", default: "A" },
+    { key: "value", label: "Value to find", kind: "text", default: "{{vars.phone}}" },
+    { key: "match", label: "Match", kind: "select", default: "exact", options: [{ value: "exact", label: "Exact (case-insensitive)" }, { value: "contains", label: "Contains" }] },
+    { key: "saveAs", label: "Save row to variable", kind: "text", default: "row" },
+  ],
+  ports: () => ["found", "notfound", "error"],
+  run: async (ctx, node) => {
+    const c = node.config;
+    const needle = String(render(c.value ?? "", ctx.scope()) ?? "").trim().toLowerCase();
+    try {
+      const rows = await ctx.services.google.readRows(ctx.agent.id, c.spreadsheetId || "demo-sheet", c.sheet || "Sheet1");
+      const { index, headers } = resolveColumn(rows, String(c.column ?? "A"));
+      const hit = needle
+        ? rows.find((r, i) => (i > 0 || !headers) && matches(String(r[index] ?? ""), needle, c.match))
+        : undefined;
+      if (!hit) return { port: "notfound", output: { searched: rows.length, value: needle } };
+      const record: Record<string, string> = {};
+      hit.forEach((v, i) => (record[headers?.[i] || String.fromCharCode(65 + i)] = v));
+      ctx.session.vars[c.saveAs || "row"] = record;
+      return { port: "found", output: record };
+    } catch (err: any) {
+      return { port: "error", output: { error: err.message } };
+    }
+  },
+});
+
+/** A column given as a letter (B), a 1-based number (2) or a header name ("Phone"). */
+export function resolveColumn(rows: string[][], col: string): { index: number; headers?: string[] } {
+  const header = rows[0] ?? [];
+  const byName = header.findIndex((h) => h.trim().toLowerCase() === col.trim().toLowerCase());
+  if (byName >= 0 && !/^[A-Z]$/i.test(col.trim())) return { index: byName, headers: header.map((h) => h.trim()) };
+  if (/^\d+$/.test(col)) return { index: Number(col) - 1 };
+  if (/^[A-Z]$/i.test(col.trim())) return { index: col.trim().toUpperCase().charCodeAt(0) - 65 };
+  return { index: 0 };
+}
+
+const matches = (cell: string, needle: string, mode?: string) => {
+  const v = cell.trim().toLowerCase();
+  return mode === "contains" ? v.includes(needle) : v === needle;
+};
+
+defineNode({
   type: "google.calendar.create",
   category: "integration",
   label: "Google Calendar: create event",
   description: "Creates a calendar event (appointments, meetings, reminders).",
-  icon: "📅",
+  icon: "calendar-plus",
   fields: [
     { key: "calendarId", label: "Calendar id", kind: "text", default: "primary" },
     { key: "summary", label: "Title", kind: "text", default: "Meeting with {{vars.full_name}}" },
     { key: "start", label: "Start (ISO date-time)", kind: "text", default: "{{vars.datetime}}" },
     { key: "durationMin", label: "Duration (minutes)", kind: "number", default: 30 },
     { key: "attendee", label: "Attendee email", kind: "text", default: "{{vars.email}}" },
+    { key: "checkBusy", label: "Refuse times that are already taken (busy port)", kind: "boolean", default: true },
   ],
-  ports: () => ["out", "error"],
+  ports: (c) => (c.checkBusy === false ? ["out", "error"] : ["out", "busy", "error"]),
   run: async (ctx, node) => {
     const s = ctx.scope();
     const c = node.config;
     try {
+      if (c.checkBusy !== false) {
+        const start = new Date(String(render(c.start, s)));
+        if (!isNaN(start.getTime())) {
+          const dur = Number(c.durationMin ?? 30);
+          const free = await ctx.services.google.freeSlots(ctx.agent.id, c.calendarId || "primary", {
+            from: start.toISOString(),
+            to: new Date(start.getTime() + dur * 60_000).toISOString(),
+            durationMin: dur,
+            dayStart: "00:00",
+            dayEnd: "23:59",
+            max: 1,
+          });
+          if (!free.length) return { port: "busy", output: { busy: true, start: start.toISOString() } };
+        }
+      }
       const ev: any = await ctx.services.google.createEvent(ctx.agent.id, c.calendarId || "primary", {
         summary: String(render(c.summary, s)),
         start: String(render(c.start, s)),
@@ -120,7 +186,7 @@ defineNode({
   category: "integration",
   label: "Gmail: send email",
   description: "Sends an email (confirmations, quotes, internal alerts).",
-  icon: "✉️",
+  icon: "mail",
   fields: [
     { key: "to", label: "To", kind: "text", default: "{{vars.email}}" },
     { key: "subject", label: "Subject", kind: "text" },
@@ -142,11 +208,11 @@ defineNode({
   type: "channel.notify",
   category: "integration",
   label: "Notify on channel",
-  description: "Sends a message to a specific Telegram chat or WhatsApp number, e.g. alert the business owner about a new lead.",
-  icon: "📣",
+  description: "Sends a message to a Telegram chat, a WhatsApp number, or a Slack / Discord channel (incoming webhook), e.g. alert the team about a new lead.",
+  icon: "megaphone",
   fields: [
-    { key: "channel", label: "Channel", kind: "select", default: "telegram", options: ["telegram", "whatsapp"].map((v) => ({ value: v, label: v })) },
-    { key: "to", label: "Chat id / phone number", kind: "text" },
+    { key: "channel", label: "Channel", kind: "select", default: "telegram", options: ["telegram", "whatsapp", "slack", "discord"].map((v) => ({ value: v, label: v })) },
+    { key: "to", label: "Chat id / phone number / webhook URL", kind: "text", help: "For Slack and Discord paste the incoming-webhook URL, or leave empty to use the one saved in Channels." },
     { key: "text", label: "Text", kind: "textarea", default: "New lead: {{vars.full_name}} ({{vars.phone}})" },
     { key: "buttons", label: "Buttons (one per line)", kind: "lines" },
   ],

@@ -53,20 +53,77 @@ export class GoogleClient {
     return this.token.value;
   }
 
-  private async call(agentId: string, action: string, url: string, payload: any, sandboxResult: any) {
+  private async call(agentId: string, action: string, url: string, payload: any, sandboxResult: any, opts: { method?: string; meta?: Record<string, any> } = {}) {
+    const logged = opts.meta ? { ...payload, ...opts.meta } : payload;
     if (!this.live) {
-      this.store.logIntegration({ agentId, service: "google", action, mode: "sandbox", request: payload, response: sandboxResult });
+      this.store.logIntegration({ agentId, service: "google", action, mode: "sandbox", request: logged, response: sandboxResult });
       return { ...sandboxResult, sandbox: true };
     }
+    const method = opts.method ?? "POST";
     const res = await this.http(url, {
-      method: "POST",
+      method,
       headers: { Authorization: `Bearer ${await this.accessToken()}`, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: method === "GET" ? undefined : JSON.stringify(payload),
     });
     const data: any = await res.json().catch(() => ({}));
-    this.store.logIntegration({ agentId, service: "google", action, mode: "live", request: payload, response: data });
+    this.store.logIntegration({ agentId, service: "google", action, mode: "live", request: logged, response: method === "GET" ? { rows: data?.values?.length ?? 0 } : data });
     if (!res.ok) throw new Error(`Google ${action} failed: ${data?.error?.message ?? res.status}`);
     return data;
+  }
+
+  /** Rows previously written in sandbox mode, so demo lookups find the data the demo created. */
+  private sandboxRows(agentId: string, spreadsheetId: string, sheet: string): string[][] {
+    return this.store
+      .listIntegrationLog(agentId, 1000)
+      .filter((l) => l.action === "sheets.append" && l.request?.spreadsheetId === spreadsheetId && l.request?.sheet === sheet)
+      .reverse()
+      .flatMap((l) => l.request.values ?? []);
+  }
+
+  async readRows(agentId: string, spreadsheetId: string, sheet: string): Promise<string[][]> {
+    const range = encodeURIComponent(`${sheet}!A1:Z2000`);
+    const sandbox = { values: this.sandboxRows(agentId, spreadsheetId, sheet) };
+    const data: any = await this.call(agentId, "sheets.read", `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`, {}, { rows: sandbox.values.length }, { method: "GET", meta: { spreadsheetId, sheet } });
+    if (data.sandbox) return sandbox.values;
+    return (data.values ?? []).map((r: any[]) => r.map(String));
+  }
+
+  /**
+   * Free appointment slots between `from` and `to` (ISO), inside working hours, using Calendar freeBusy.
+   * In sandbox mode, events this agent created in sandbox count as busy.
+   */
+  async freeSlots(agentId: string, calendarId: string, opts: { from: string; to: string; durationMin: number; dayStart?: string; dayEnd?: string; max?: number }) {
+    const from = new Date(opts.from);
+    const to = new Date(opts.to);
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) throw new Error("Invalid date range");
+    const sandboxBusy = this.store
+      .listIntegrationLog(agentId, 1000)
+      .filter((l) => l.action === "calendar.create")
+      .map((l) => ({ start: l.request?.start?.dateTime, end: l.request?.end?.dateTime }));
+    const data: any = await this.call(
+      agentId,
+      "calendar.freebusy",
+      "https://www.googleapis.com/calendar/v3/freeBusy",
+      { timeMin: from.toISOString(), timeMax: to.toISOString(), items: [{ id: calendarId }] },
+      { calendars: { [calendarId]: { busy: sandboxBusy } } },
+    );
+    const busy: { start: number; end: number }[] = (data.calendars?.[calendarId]?.busy ?? []).map((b: any) => ({ start: Date.parse(b.start), end: Date.parse(b.end) }));
+    const [sh, sm] = (opts.dayStart ?? "09:00").split(":").map(Number);
+    const [eh, em] = (opts.dayEnd ?? "18:00").split(":").map(Number);
+    const step = opts.durationMin * 60_000;
+    const slots: string[] = [];
+    for (let day = new Date(from); day < to && slots.length < (opts.max ?? 8); day.setDate(day.getDate() + 1)) {
+      const open = new Date(day);
+      open.setHours(sh, sm, 0, 0);
+      const close = new Date(day);
+      close.setHours(eh, em, 0, 0);
+      for (let t = Math.max(open.getTime(), from.getTime()); t + step <= close.getTime() && slots.length < (opts.max ?? 8); t += step) {
+        if (t + step > to.getTime()) break;
+        if (!busy.some((b) => t < b.end && t + step > b.start)) slots.push(new Date(t).toISOString().slice(0, 16));
+      }
+      day.setHours(0, 0, 0, 0);
+    }
+    return slots;
   }
 
   appendRow(agentId: string, spreadsheetId: string, sheet: string, values: any[]) {
@@ -77,6 +134,7 @@ export class GoogleClient {
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`,
       { values: [values] },
       { updates: { updatedRows: 1, updatedRange: `${sheet}!A?` } },
+      { meta: { spreadsheetId, sheet } },
     );
   }
 

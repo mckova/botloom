@@ -122,12 +122,18 @@ export async function designAgent(llm: LlmProvider, prompt: string, validate: Va
     };
   }
 
+  const result = await designLoop(llm, `Design a BotLoom agent for this request:\n\n<request>\n${prompt}\n</request>`, validate);
+  return { ...result, designer: "claude" };
+}
+
+/** Draft -> validate -> repair loop shared by "design from scratch" and "revise with AI". */
+async function designLoop(llm: LlmProvider, firstRequest: string, validate: Validate): Promise<Omit<DesignedAgent, "designer">> {
   const schema = structuredClone(SCHEMA);
   (schema.properties.nodes.items.properties.type as any).enum = listNodeDefs().map((d) => d.type);
-  let request = `Design a BotLoom agent for this request:\n\n<request>\n${prompt}\n</request>`;
+  let request = firstRequest;
   let lastErrors: string[] = [];
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const out = await llm.json(request, schema, { system: SYSTEM, effort: "medium" });
     if (!out) throw new Error("The designer returned no result");
     const parseErrors: string[] = [];
@@ -156,11 +162,59 @@ export async function designAgent(llm: LlmProvider, prompt: string, validate: Va
         flow,
         docs: out.knowledge ?? [],
         notes: [...(out.notes ?? []), ...v.warnings],
-        designer: "claude",
       };
     }
     // Self-repair: give the model its own draft and the validator's findings.
-    request = `${request}\n\nYour previous draft:\n${JSON.stringify(out)}\n\nThe validator found these problems. Return a corrected, complete design:\n${lastErrors.map((e) => `- ${e}`).join("\n")}`;
+    request = `${firstRequest}\n\nYour previous draft:\n${JSON.stringify(out)}\n\nThe validator found these problems. Return a corrected, complete design:\n${lastErrors.map((e) => `- ${e}`).join("\n")}`;
   }
   throw new Error(`The designer could not produce a valid flow: ${lastErrors.join("; ")}`);
+}
+
+/** The current agent in the designer's own output format, so Claude edits it instead of starting over. */
+function asDraft(agent: { name: string; description: string; settings: { language?: string; systemPrompt?: string }; flow: Flow }) {
+  return {
+    name: agent.name,
+    description: agent.description,
+    language: agent.settings.language ?? "en",
+    systemPrompt: agent.settings.systemPrompt ?? "",
+    nodes: agent.flow.nodes.map((n) => ({
+      id: n.id,
+      type: n.type,
+      label: n.label ?? "",
+      configJson: JSON.stringify(n.config ?? {}),
+      x: Math.round((n.position?.x ?? 0) / 260),
+      y: Math.round((n.position?.y ?? 0) / 160),
+    })),
+    edges: agent.flow.edges.map((e) => ({ source: e.source, target: e.target, sourcePort: e.sourcePort ?? "out" })),
+  };
+}
+
+/**
+ * Flow copilot: "add a step that asks for the customer's city", "send me a Slack alert on every lead".
+ * Claude edits the existing flow; the result is validated and repaired like a new design, and returned
+ * as a proposal the user reviews before applying.
+ */
+export async function reviseAgent(
+  llm: LlmProvider,
+  agent: { name: string; description: string; settings: { language?: string; systemPrompt?: string }; flow: Flow },
+  instruction: string,
+  validate: Validate,
+): Promise<Omit<DesignedAgent, "designer">> {
+  if (llm.name === "mock") throw new Error("Editing a flow with AI needs Claude: set ANTHROPIC_API_KEY on the server.");
+  const request = `Revise this existing BotLoom agent according to the owner's instruction.
+
+Rules for a revision:
+- Keep every node id, label, config value and edge the instruction does not ask to change.
+- New nodes get new short camelCase ids; place them near the nodes they connect to.
+- "knowledge" must contain only NEW documents worth adding (usually an empty array).
+- "notes" must list, in the owner's language, each change you made, one per item, plus any setup the owner must do.
+
+<current_agent>
+${JSON.stringify(asDraft(agent))}
+</current_agent>
+
+<instruction>
+${instruction}
+</instruction>`;
+  return designLoop(llm, request, validate);
 }

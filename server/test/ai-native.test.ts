@@ -10,6 +10,7 @@ const base: Omit<LlmProvider, "runAgent" | "json"> = {
   name: "scripted",
   classify: async () => null,
   extract: async () => ({}),
+  generate: async (prompt) => ({ text: `generated: ${prompt}` }),
 };
 
 describe("AI-filled parameters (flow nodes as agent tools)", () => {

@@ -1,34 +1,44 @@
-# 🧶 BotLoom: AI-native agent & bot builder
+# BotLoom
 
 [עברית](README.he.md)
 
-**Describe a bot in plain Hebrew or English and Claude builds it.** Then refine it in a visual flow builder, give
-Claude agents real tools (Google Sheets, Calendar, Gmail, your APIs, a knowledge base), connect it to **WhatsApp,
-Telegram and your website**, and watch every run step by step.
+BotLoom builds customer-facing agents and back-office automations from a description. You write what the agent should do, in Hebrew or English, and Claude designs the flow, the persona and a starter knowledge base. You then refine it on a visual canvas, connect it to WhatsApp, Telegram, Slack, Discord or your website, and read every run step by step.
 
-BotLoom combines two kinds of product that usually live apart:
+Conversational bots (menus, questions, validation, handoff to a person) and automations (webhooks, schedules, Google Sheets, Calendar, Gmail) run in one resumable engine. Claude (Opus 5.5) is a step type like any other, so a flow can mix fixed steps with an agent that decides for itself.
 
-- **Conversational bots**: menus, questions, validation, human handoff.
-- **Automations**: webhooks, schedules, integrations.
+![Flow builder](docs/screenshots/builder.png)
 
-Both run in **one resumable engine**, with Claude (Opus 5.5 by default) as a first-class part of the flow.
+## What Claude does in BotLoom
 
-![Builder](docs/screenshots/builder.png)
+- **Designs agents.** Describe the agent; Claude drafts the flow, checks the graph against the validator, and repairs its own draft (up to three attempts) when a check fails.
+- **Edits flows on request.** The command bar above the canvas takes an instruction such as "alert me on Slack for every new lead" and returns a list of proposed changes. Nothing is saved until you press Apply.
+- **Answers with tools.** The AI agent step can search the knowledge base, look up rows in Google Sheets, check free calendar slots, book appointments (with a double-booking guard), send email, call your API, remember facts about a contact, and hand off to a person.
+- **Remembers contacts.** Facts a customer shares ("I prefer morning appointments") are stored per contact and fed back into later conversations. Card numbers and passwords are refused. Staff can see and delete each fact from the inbox.
+- **Writes the handoff brief.** When an agent hands a chat to a person, Claude writes a short brief: what happened, what the customer wants, mood, urgency and the next step.
+- **Drafts replies for staff.** In the inbox, "Draft reply" writes an answer from the transcript and the knowledge base for a person to edit and send.
+- **Writes text inside automations.** The AI write step produces an email body or summary from flow variables, with a plain-text fallback path if the call fails.
+- **Routes and extracts.** Intent routing (each intent is an output) and structured extraction into variables, both with JSON-schema outputs.
 
-## Highlights
+## Channels and integrations
 
-| | |
+| Where | How |
 |---|---|
-| ✨ **AI designer** | Describe the bot; Claude designs the flow, persona and starter knowledge base, validates the graph and **repairs its own draft** if the validator objects |
-| 🤖 **Claude agents with tools** | Knowledge search, save lead (Sheets), book appointment (Calendar), send email (Gmail), order lookup (HTTP), human handoff, and **any flow node as a tool** via `{{ai.field}}` placeholders |
-| 🧭 **AI routing & extraction** | Intent router (each intent is an output port) and structured extraction into variables, both with JSON-schema structured outputs |
-| 💬 **Resumable conversations** | `Ask` nodes pause the run and resume on the contact's next reply, with validation (email, phone, date, number, choice) and retries |
-| 📱 **Channels** | WhatsApp Cloud API (signature-verified), Telegram (webhook or long polling), embeddable web widget (Shadow DOM, RTL, history restore), webhooks, schedules |
-| 🔁 **Channel downgrade** | Buttons render natively where possible and as a numbered menu elsewhere; typing "2" picks option 2 |
-| 🔍 **Observability** | Every run is a trace: node, port taken, input/output, tool calls, token usage, duration. Integration calls are logged (live or sandbox) |
-| 🙋 **Human inbox** | Handed-off conversations go silent for the bot; a team member replies from the dashboard and hands back |
-| 🔐 **Safe by design** | No code execution in templates, SSRF guard on HTTP, per-agent tool allow-list, admin token, masked secrets, webhook secrets/signatures |
-| 🧪 **Runs offline** | SQLite, local BM25 retrieval, deterministic demo LLM: the full demo and the test suite run with no keys |
+| WhatsApp | Cloud API, signature-verified webhooks, reply buttons and lists |
+| Telegram | Webhook or long polling, inline buttons |
+| Website | Embeddable widget (Shadow DOM, right-to-left aware, history per visitor) |
+| Slack, Discord | Incoming webhooks for team alerts; only the official hosts are allowed |
+| Google | Sheets (add row, find row), Calendar (free slots, create event), Gmail. Without credentials every call runs in a logged sandbox |
+| Anything else | HTTP request step with an SSRF guard, inbound webhooks, schedules |
+
+Buttons render natively where a channel supports them and as a numbered menu elsewhere; typing "2" picks the second option.
+
+## Working examples
+
+Three agents ship with the app and run end to end without API keys:
+
+- **מרפאת תנועה: קבלה** (Hebrew physio clinic receptionist): a guided booking path with a busy-slot branch, plus a Claude agent that answers from the knowledge base, checks availability, books and remembers patient preferences.
+- **Gadget Garden support**: a store agent that answers from the FAQ, looks up orders, saves leads, remembers returning customers and alerts Telegram and Slack on handoff.
+- **Gadget Garden orders**: a webhook automation that logs each order to Sheets, has Claude write a personal thank-you email, alerts the owner on orders over $500, and sends a morning summary on a schedule.
 
 ## Quick start
 
@@ -38,11 +48,16 @@ npm run build          # builds the web UI
 npm start              # http://localhost:8787
 ```
 
-Open the dashboard, pick a template (Hebrew clinic receptionist, AI sales agent, order automation) or use the AI designer.
-Add `ANTHROPIC_API_KEY` to `.env` (see [.env.example](.env.example)) for real Claude responses; without it a deterministic
-demo provider is used.
+Add `ANTHROPIC_API_KEY` to `.env` (see [.env.example](.env.example)) for real Claude responses. Without it a deterministic demo provider answers, so the whole app and the test suite work offline.
 
-Development: `npm run dev` (API on :8787, Vite UI on :5173). Tests: `npm test`. Docker: `docker compose up --build`.
+Development: `npm run dev` (API on :8787, UI on :5173). Tests: `npm test`. Docker: `docker compose up --build`.
+
+## Screens
+
+| | |
+|---|---|
+| ![Home](docs/screenshots/home.png) | ![Inbox with brief](docs/screenshots/inbox.png) |
+| ![Run trace](docs/screenshots/runs.png) | ![Test chat](docs/screenshots/simulator.png) |
 
 ## Architecture
 
@@ -54,17 +69,20 @@ flowchart LR
   HK[Webhooks] --> H
   SC[Scheduler] --> H
   H[Channel hub<br/>normalize / downgrade] --> E[Flow engine<br/>resumable runs]
-  E --> N[Node registry]
-  N --> AI[Claude: agent, intent,<br/>extract, designer]
-  N --> INT[Google Sheets / Calendar / Gmail<br/>HTTP, notify]
+  E --> N[Step registry]
+  N --> AI[Claude: agent, write, route,<br/>extract, design, brief]
+  N --> INT[Sheets / Calendar / Gmail<br/>HTTP, Slack, Discord]
   N --> KB[Knowledge base<br/>BM25]
-  E --> DB[(SQLite: agents, sessions,<br/>runs, traces, logs)]
+  E --> DB[(SQLite: agents, sessions,<br/>runs, memory, logs)]
   UI[React builder<br/>React Flow] --> API[REST API] --> E
 ```
 
-Details: [docs/architecture.md](docs/architecture.md).
+Details: [docs/architecture.md](docs/architecture.md). Design direction: [docs/DESIGN.md](docs/DESIGN.md).
+
+## Safety
+
+No code execution in templates, an SSRF guard on HTTP steps, a per-agent tool allow-list, an admin token, masked secrets (tokens and webhook URLs), signed or secret-checked webhooks, and a refusal list for sensitive facts in contact memory.
 
 ## Tech
-TypeScript end to end · Node 22 (`node:sqlite`) · Fastify · Anthropic SDK (Claude Opus 5.5, adaptive thinking, structured
-outputs, tool use, server-side refusal fallbacks) · React 19 + React Flow · Vitest (24 tests: engine, channels, security,
-scheduler, AI tool loop, designer self-repair).
+
+TypeScript end to end. Node 22 (`node:sqlite`), Fastify, the Anthropic SDK (Claude Opus 5.5 with adaptive thinking, structured outputs, tool use, streaming and server-side fallbacks), React 19 with React Flow, IBM Plex. 37 Vitest tests cover the engine, channels, security, scheduler, the agent tool loop, designer self-repair, availability, memory, the handoff brief and the flow copilot.

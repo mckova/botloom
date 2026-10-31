@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { X } from "lucide-react";
+import { NodeIcon } from "../components/NodeIcon";
 import { api, isVisible, type FieldDef, type FlowNode, type NodeType } from "../api";
 
 interface Props {
@@ -18,7 +20,7 @@ export default function ConfigPanel({ node, def, agentId, onChange, onDelete, on
     try {
       const payload = node.type === "trigger.webhook" ? { id: "TEST-1", customer: "Test Customer", email: "test@example.com", total: 650 } : {};
       const r = await api(`/api/agents/${agentId}/trigger/${node.id}`, { method: "POST", json: payload });
-      setFireResult(`Run ${r.run.status} in ${r.run.ms} ms, ${r.run.steps.length} steps. See "Runs & traces".`);
+      setFireResult(`Run ${r.run.status} in ${r.run.ms} ms, ${r.run.steps.length} steps. Open Runs to see the trace.`);
     } catch (e: any) {
       setFireResult(`Error: ${e.message}. Save the flow first.`);
     }
@@ -27,24 +29,26 @@ export default function ConfigPanel({ node, def, agentId, onChange, onDelete, on
   return (
     <div className="panel-right">
       <div className="panel-head">
-        <span>{def?.icon}</span>
-        <b>{def?.label ?? node.type}</b>
+        <NodeIcon type={node.type} size={16} />
+        <h2>{def?.label ?? node.type}</h2>
         <span className="spacer" />
-        <button className="ghost" onClick={onClose}>
-          ✕
+        <button className="ghost icon" onClick={onClose} aria-label="Close step settings">
+          <X size={16} strokeWidth={1.75} />
         </button>
       </div>
       <p className="muted small">{def?.description}</p>
       <label className="field">
-        <span>Node label</span>
+        <span>Label</span>
         <input value={node.label ?? ""} placeholder={def?.label} onChange={(e) => onChange({ label: e.target.value })} dir="auto" />
       </label>
-      <div className="muted small">id: {node.id}</div>
+      <div className="muted small">
+        Step id <span className="mono">{node.id}</span>
+      </div>
       {def?.fields.filter((f) => isVisible(f, node.config, def.fields)).map((f) => <Field key={f.key} f={f} value={node.config[f.key]} onChange={(v) => set(f.key, v)} />)}
 
       {node.type === "trigger.webhook" && (
         <div className="hint">
-          <div className="small">Endpoint</div>
+          <div className="small" style={{ marginBottom: 4 }}>Endpoint</div>
           <code>
             POST {location.origin}/hooks/{agentId}/{node.config.key || "key"}
           </code>
@@ -52,16 +56,16 @@ export default function ConfigPanel({ node, def, agentId, onChange, onDelete, on
       )}
       {def?.trigger && node.type !== "trigger.message" && (
         <div className="hint">
-          <button onClick={fire}>▶ Run now with sample data</button>
+          <button onClick={fire}>Run now with sample data</button>
           {fireResult && <div className="small">{fireResult}</div>}
         </div>
       )}
-      <div className="hint small muted">
+      <div className="hint small" style={{ lineHeight: 2 }}>
         Templates: <code>{"{{vars.x}}"}</code> <code>{"{{message.text}}"}</code> <code>{"{{contact.name}}"}</code> <code>{"{{message.payload.field}}"}</code> <code>{"{{now.date}}"}</code>. Filters: <code>| upper</code>{" "}
         <code>| default: 'x'</code>
       </div>
       <button className="danger" onClick={onDelete}>
-        Delete node
+        Delete step
       </button>
     </div>
   );

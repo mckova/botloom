@@ -5,6 +5,9 @@ import { render } from "../template.js";
 import { chunk, search } from "../../knowledge/bm25.js";
 import type { ToolSpec } from "../../llm/provider.js";
 
+/** Stable key for a contact's long-term memory. */
+export const contactKey = (ctx: RunContext) => `${ctx.session.channel}:${ctx.session.contactId}`;
+
 export function kbSearch(ctx: RunContext, query: string, k = 3) {
   const chunks = ctx.services.store.listDocs(ctx.agent.id).flatMap((d) => chunk(d.id, d.title, d.content));
   return search(chunks, query, k).map((h) => ({ title: h.title, snippet: h.snippet, score: Number(h.score.toFixed(3)) }));
@@ -72,6 +75,18 @@ export const AGENT_TOOLS: Record<
     },
     run: async (ctx, node, input) => {
       const c = node.config;
+      const start = new Date(String(input.datetime));
+      if (isNaN(start.getTime())) return { ok: false, message: `"${input.datetime}" is not a valid ISO date-time. Ask the contact again.` };
+      // Double-booking guard: the requested slot must be free.
+      const free = await ctx.services.google.freeSlots(ctx.agent.id, c.calendarId || "primary", {
+        from: start.toISOString(),
+        to: new Date(start.getTime() + Number(c.durationMin ?? 30) * 60_000).toISOString(),
+        durationMin: Number(c.durationMin ?? 30),
+        dayStart: "00:00",
+        dayEnd: "23:59",
+        max: 1,
+      });
+      if (!free.length) return { ok: false, message: `${input.datetime} is already taken. Use check_availability and offer other times.` };
       const ev: any = await ctx.services.google.createEvent(ctx.agent.id, c.calendarId || "primary", {
         summary: `${input.service || "Appointment"}: ${input.full_name}`,
         start: String(input.datetime),
@@ -113,6 +128,54 @@ export const AGENT_TOOLS: Record<
       return await res.json();
     },
   },
+  check_availability: {
+    label: "Check calendar availability",
+    spec: {
+      name: "check_availability",
+      description:
+        "List free appointment slots in the calendar for a day or date range. Use it before book_appointment and offer the contact 2-3 of the returned slots.",
+      input_schema: {
+        type: "object",
+        properties: {
+          from_date: { type: "string", description: "First day to check, YYYY-MM-DD" },
+          to_date: { type: "string", description: "Last day to check, YYYY-MM-DD (defaults to from_date)" },
+        },
+        required: ["from_date"],
+      },
+    },
+    run: async (ctx, node, input) => {
+      const c = node.config;
+      const from = String(input.from_date).slice(0, 10);
+      const to = String(input.to_date || from).slice(0, 10);
+      const end = new Date(`${to}T00:00`);
+      end.setDate(end.getDate() + 1);
+      const slots = await ctx.services.google.freeSlots(ctx.agent.id, c.calendarId || "primary", {
+        from: `${from}T00:00`,
+        to: end.toISOString(),
+        durationMin: Number(c.durationMin ?? 30),
+        dayStart: c.dayStart || "09:00",
+        dayEnd: c.dayEnd || "18:00",
+        max: 8,
+      });
+      return { ok: true, durationMin: Number(c.durationMin ?? 30), slots };
+    },
+  },
+  remember: {
+    label: "Long-term memory",
+    spec: {
+      name: "remember",
+      description:
+        "Save a lasting fact about this contact (preferences, family, past purchases, constraints) so you can use it in future conversations. One short fact per call. Never store payment details or passwords.",
+      input_schema: { type: "object", properties: { fact: { type: "string", description: "e.g. 'Prefers morning appointments'" } }, required: ["fact"] },
+    },
+    run: async (ctx, _n, input) => {
+      const fact = String(input.fact ?? "").trim();
+      if (!fact) return { ok: false, message: "Empty fact" };
+      if (/\b\d{12,19}\b|password|סיסמה|cvv/i.test(fact)) return { ok: false, message: "Refused: sensitive data is not stored." };
+      ctx.services.store.addMemory(ctx.agent.id, contactKey(ctx), fact);
+      return { ok: true, message: "Saved to memory." };
+    },
+  },
   handoff_to_human: {
     label: "Hand off to a human",
     spec: {
@@ -133,7 +196,7 @@ defineNode({
   category: "ai",
   label: "AI agent",
   description: "Claude answers the contact, using the tools you allow (knowledge base, Sheets, Calendar, Gmail, APIs, handoff).",
-  icon: "🤖",
+  icon: "bot",
   fields: [
     { key: "instructions", label: "Instructions", kind: "textarea", placeholder: "You are the receptionist of ..." },
     {
@@ -156,9 +219,11 @@ defineNode({
     { key: "loop", label: "Stay in conversation (wait for next message)", kind: "boolean", default: true },
     { key: "spreadsheetId", showIf: { key: "tools", in: ["save_lead"] }, label: "Sheets: spreadsheet id", kind: "text" },
     { key: "sheetName", showIf: { key: "tools", in: ["save_lead"] }, label: "Sheets: tab name", kind: "text", default: "Leads" },
-    { key: "calendarId", label: "Calendar id", kind: "text", default: "primary", showIf: { key: "tools", in: ["book_appointment"] } },
-    { key: "durationMin", label: "Appointment length (min)", kind: "number", default: 30, showIf: { key: "tools", in: ["book_appointment"] } },
+    { key: "calendarId", label: "Calendar id", kind: "text", default: "primary", showIf: { key: "tools", in: ["book_appointment", "check_availability"] } },
+    { key: "durationMin", label: "Appointment length (min)", kind: "number", default: 30, showIf: { key: "tools", in: ["book_appointment", "check_availability"] } },
     { key: "lookupUrl", label: "Order API URL ({order} placeholder)", kind: "text", showIf: { key: "tools", in: ["lookup_order"] } },
+    { key: "dayStart", label: "Working hours start", kind: "text", default: "09:00", showIf: { key: "tools", in: ["check_availability"] } },
+    { key: "dayEnd", label: "Working hours end", kind: "text", default: "18:00", showIf: { key: "tools", in: ["check_availability"] } },
   ],
   ports: () => ["out", "handoff"],
   run: (ctx, node) => runAgent(ctx, node, String(render(node.config.input ?? "{{message.text}}", ctx.scope()) ?? "")),
@@ -212,13 +277,17 @@ async function runAgent(ctx: RunContext, node: FlowNode, userText: string) {
   const globalAllow = ctx.agent.settings.allowedTools;
   const tools = allowed.filter((t) => !globalAllow || globalAllow.includes(t));
   const scope = ctx.scope();
+  const memory = ctx.services.store.listMemory(ctx.agent.id, contactKey(ctx));
   const knownVars = Object.fromEntries(Object.entries(ctx.session.vars).filter(([k]) => !k.startsWith("__")));
   const system = [
     ctx.agent.settings.systemPrompt ? String(render(ctx.agent.settings.systemPrompt, scope)) : "",
     cfg.instructions ? String(render(cfg.instructions, scope)) : "You are a helpful assistant for a small business.",
     `You are chatting on ${ctx.session.channel}. Keep replies short and friendly, suitable for a chat app. Reply in the user's language (Hebrew or English).`,
-    `Today is ${new Date().toISOString().slice(0, 10)}. Contact name: ${ctx.session.contactName ?? "unknown"}.`,
+    `Today is ${new Date().toLocaleDateString("en-CA")} (${new Date().toLocaleDateString("en-US", { weekday: "long" })}). Contact name: ${ctx.session.contactName ?? "unknown"}.`,
     Object.keys(knownVars).length ? `Known details about this contact: ${JSON.stringify(knownVars)}` : "",
+    memory.length ? `What you remember about this contact from earlier conversations:\n${memory.map((m) => `- ${m.fact}`).join("\n")}` : "",
+    tools.includes("remember") ? "When the contact shares a lasting preference or personal detail, save it with remember (silently, do not announce it)." : "",
+    tools.includes("check_availability") && tools.includes("book_appointment") ? "Before booking, call check_availability and offer real free slots; never invent times." : "",
     tools.includes("knowledge_search") ? "Use knowledge_search for any business fact; if it has no answer, say you will check with the team." : "",
   ]
     .filter(Boolean)
@@ -263,7 +332,7 @@ defineNode({
   category: "ai",
   label: "Intent router",
   description: "Classifies the message into one of your intents; each intent is an output port.",
-  icon: "🧭",
+  icon: "route",
   fields: [
     { key: "input", label: "Text to classify", kind: "text", default: "{{message.text}}" },
     { key: "intents", label: "Intents (id: description)", kind: "lines", placeholder: "booking: wants to book or change an appointment" },
@@ -283,7 +352,7 @@ defineNode({
   category: "ai",
   label: "Extract data",
   description: "Pulls structured fields (name, phone, date...) out of free text into variables.",
-  icon: "🧲",
+  icon: "scan-text",
   fields: [
     { key: "input", label: "Text", kind: "text", default: "{{message.text}}" },
     { key: "fields", label: "Fields (name: description)", kind: "lines", placeholder: "full_name: the person's name" },
@@ -304,7 +373,7 @@ defineNode({
   category: "ai",
   label: "Knowledge search",
   description: "Searches the agent's documents and stores the best matches in a variable.",
-  icon: "📚",
+  icon: "book-open",
   fields: [
     { key: "query", label: "Query", kind: "text", default: "{{message.text}}" },
     { key: "saveAs", label: "Save to variable", kind: "text", default: "kb" },
@@ -315,5 +384,55 @@ defineNode({
     const hits = kbSearch(ctx, String(render(node.config.query, ctx.scope()) ?? ""), Number(node.config.k ?? 3));
     ctx.session.vars[node.config.saveAs || "kb"] = hits;
     return { port: hits.length ? "found" : "empty", output: hits };
+  },
+});
+
+defineNode({
+  type: "ai.generate",
+  category: "ai",
+  label: "AI write",
+  description:
+    "Claude writes text inside an automation: a summary of an order, a personalised follow-up, a translation, a reply draft. The result is saved to a variable (and optionally sent).",
+  icon: "pen-line",
+  fields: [
+    {
+      key: "prompt",
+      label: "Prompt (templates allowed)",
+      kind: "textarea",
+      placeholder: "Write a warm two-line follow-up to {{vars.full_name}} about {{vars.service}}.",
+    },
+    { key: "instructions", label: "Style / rules (optional)", kind: "textarea", placeholder: "Hebrew, friendly, no emojis, under 300 characters." },
+    {
+      key: "effort",
+      label: "Thinking effort",
+      kind: "select",
+      default: "low",
+      options: [
+        { value: "low", label: "Low (fast)" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High (best quality)" },
+      ],
+    },
+    { key: "saveAs", label: "Save to variable", kind: "text", default: "ai_text" },
+    { key: "sendReply", label: "Send result to contact", kind: "boolean", default: false },
+  ],
+  ports: () => ["out", "error"],
+  run: async (ctx, node) => {
+    const c = node.config;
+    const scope = ctx.scope();
+    const prompt = String(render(c.prompt ?? "", scope) ?? "").trim();
+    if (!prompt) return { port: "error", output: { error: "Empty prompt" } };
+    const system = [ctx.agent.settings.systemPrompt ? String(render(ctx.agent.settings.systemPrompt, scope)) : "", c.instructions ? String(render(c.instructions, scope)) : ""]
+      .filter(Boolean)
+      .join("\n\n");
+    try {
+      const out = await ctx.services.llm.generate(prompt, { system: system || undefined, model: ctx.agent.settings.model, effort: c.effort || "low" });
+      if (!out.text) return { port: "error", output: { error: "The model returned no text" } };
+      ctx.session.vars[c.saveAs || "ai_text"] = out.text;
+      if (c.sendReply) ctx.send({ text: out.text });
+      return { port: "out", output: { text: out.text, usage: out.usage } };
+    } catch (err: any) {
+      return { port: "error", output: { error: String(err.message ?? err) } };
+    }
   },
 });

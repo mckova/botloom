@@ -104,6 +104,24 @@ export class AnthropicProvider implements LlmProvider {
     }
   }
 
+  async generate(prompt: string, opts: { model?: string; system?: string; effort?: "low" | "medium" | "high" } = {}) {
+    const response = await this.client.beta.messages
+      .stream({
+        model: opts.model || DEFAULT_MODEL,
+        max_tokens: 16000,
+        betas: BETAS,
+        fallbacks: "default",
+        thinking: { type: "adaptive" },
+        output_config: { effort: opts.effort ?? "low" },
+        ...(opts.system ? { system: opts.system } : {}),
+        messages: [{ role: "user", content: prompt }],
+      })
+      .finalMessage();
+    const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
+    if (response.stop_reason === "refusal") return { text: "", usage };
+    return { text: textOf(response.content), usage };
+  }
+
   async classify(text: string, labels: { id: string; description: string }[], model?: string) {
     const ids = [...labels.map((l) => l.id), "none"];
     const out = await this.json(
