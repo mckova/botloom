@@ -80,7 +80,7 @@ export default function Builder({ agent, types, onSaved }: { agent: Agent; types
   const [status, setStatus] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
   const [showSim, setShowSim] = useState(true);
   const flowRef = useRef<{ fitView: (o?: object) => unknown } | null>(null);
-  const FIT = { padding: { top: 0.14, left: 0.05, right: 0.05, bottom: 0.05 }, maxZoom: 1 };
+  const FIT = { padding: { top: 0.14, left: 0.05, right: 0.05, bottom: 0.05 }, minZoom: 0.6, maxZoom: 1 };
   // The canvas changes width when the side panel opens or closes; refit so the flow stays readable.
   useEffect(() => {
     const t = setTimeout(() => flowRef.current?.fitView({ ...FIT, duration: 160 }), 60);

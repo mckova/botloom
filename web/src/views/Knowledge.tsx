@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Agent } from "../api";
 import { useConfirm } from "../components/Confirm";
 import { BookOpen } from "lucide-react";
+import { toast } from "sonner";
 
 interface Doc {
   id: string;
@@ -49,8 +50,11 @@ export default function Knowledge({ agent }: { agent: Agent }) {
             <span className="spacer" />
             <button
               className="primary"
-              disabled={!title || !content}
               onClick={async () => {
+                if (!title.trim() || !content.trim()) {
+                  toast("Add a title and some text first.");
+                  return;
+                }
                 await api(`/api/agents/${agent.id}/docs`, { method: "POST", json: { title, content } });
                 setTitle("");
                 setContent("");

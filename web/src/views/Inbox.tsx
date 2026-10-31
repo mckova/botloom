@@ -45,6 +45,8 @@ export default function Inbox({
   onOpenAgent: (id: string) => void;
 }) {
   const [data, setData] = useState<InboxData | null>(null);
+  // Narrow screens show the list or the conversation, one at a time.
+  const [opened, setOpened] = useState(false);
   const load = useCallback(() => api<InboxData>(`/api/inbox${query(folder)}`).then(setData), [folder]);
   useEffect(() => {
     load();
@@ -64,6 +66,10 @@ export default function Inbox({
     if (!selected && items[0]) onSelect(items[0].id);
   }, [data, items, selected, onSelect]);
 
+  const pick = (f: Folder) => {
+    setOpened(false);
+    onFolder(f);
+  };
   const c = data?.counts;
   const isOn = (f: Folder) => f.kind === folder.kind && ("id" in f ? "id" in folder && folder.id === f.id : true);
   const title =
@@ -76,19 +82,19 @@ export default function Inbox({
       : `${items.length} ${items.length === 1 ? "conversation" : "conversations"}, newest first`;
 
   return (
-    <div className="inbox">
+    <div className="inbox" data-opened={opened}>
       <nav className="glass col folders" aria-label="Inbox folders">
         <div className="k">Inbox</div>
-        <FolderLink on={isOn({ kind: "waiting" })} onClick={() => onFolder({ kind: "waiting" })} label="Waiting for you" n={c?.waiting} />
-        <FolderLink on={isOn({ kind: "handled" })} onClick={() => onFolder({ kind: "handled" })} label="Handled by agents" n={c?.handled} />
-        <FolderLink on={isOn({ kind: "all" })} onClick={() => onFolder({ kind: "all" })} label="All" n={c?.all} />
+        <FolderLink on={isOn({ kind: "waiting" })} onClick={() => pick({ kind: "waiting" })} label="Waiting for you" n={c?.waiting} />
+        <FolderLink on={isOn({ kind: "handled" })} onClick={() => pick({ kind: "handled" })} label="Handled by agents" n={c?.handled} />
+        <FolderLink on={isOn({ kind: "all" })} onClick={() => pick({ kind: "all" })} label="All" n={c?.all} />
         <div className="k gap">Agents</div>
         {c?.agents.map((a) => (
-          <FolderLink key={a.id} on={isOn({ kind: "agent", id: a.id })} onClick={() => onFolder({ kind: "agent", id: a.id })} label={a.name} n={a.waiting || undefined} bidi />
+          <FolderLink key={a.id} on={isOn({ kind: "agent", id: a.id })} onClick={() => pick({ kind: "agent", id: a.id })} label={a.name} n={a.waiting || undefined} bidi />
         ))}
         {c && c.channels.length > 0 && <div className="k gap">Channels</div>}
         {c?.channels.map((ch) => (
-          <FolderLink key={ch.id} on={isOn({ kind: "channel", id: ch.id })} onClick={() => onFolder({ kind: "channel", id: ch.id })} label={channelName(ch.id)} n={ch.waiting || undefined} />
+          <FolderLink key={ch.id} on={isOn({ kind: "channel", id: ch.id })} onClick={() => pick({ kind: "channel", id: ch.id })} label={channelName(ch.id)} n={ch.waiting || undefined} />
         ))}
       </nav>
 
@@ -113,12 +119,12 @@ export default function Inbox({
             </div>
           )}
           {items.map((i) => (
-            <Row key={i.id} item={i} on={i.id === selected} onClick={() => onSelect(i.id)} />
+            <Row key={i.id} item={i} on={i.id === selected} onClick={() => { setOpened(true); onSelect(i.id); }} />
           ))}
         </div>
       </section>
 
-      {selected ? <Conversation key={selected} id={selected} onChanged={load} onOpenAgent={onOpenAgent} /> : <div className="glass cv empty-cv" />}
+      {selected ? <Conversation key={selected} id={selected} onChanged={load} onOpenAgent={onOpenAgent} onBack={() => setOpened(false)} /> : <div className="glass cv empty-cv" />}
     </div>
   );
 }
@@ -155,7 +161,7 @@ function Row({ item, on, onClick }: { item: InboxItem; on: boolean; onClick: () 
 
 type Sheet = { kind: "edit"; doc: KbDoc } | { kind: "teach"; question: string; answer: string } | null;
 
-function Conversation({ id, onChanged, onOpenAgent }: { id: string; onChanged: () => void; onOpenAgent: (id: string) => void }) {
+function Conversation({ id, onChanged, onOpenAgent, onBack }: { id: string; onChanged: () => void; onOpenAgent: (id: string) => void; onBack: () => void }) {
   const [s, setS] = useState<SessionDetail | null>(null);
   const [why, setWhy] = useState<Explanation[]>([]);
   const [text, setText] = useState("");
@@ -193,10 +199,12 @@ function Conversation({ id, onChanged, onOpenAgent }: { id: string; onChanged: (
     }
     setBusy("send");
     try {
-      await api(`/api/sessions/${id}/reply`, { method: "POST", json: { text } });
+      const r = await api<{ delivery?: { delivered: boolean; detail?: string } }>(`/api/sessions/${id}/reply`, { method: "POST", json: { text } });
       if (release) await api(`/api/sessions/${id}/release`, { method: "POST" });
       setText("");
-      toast(release ? `Sent. ${s.agentName} has the conversation again.` : "Sent.");
+      const handed = release ? ` ${s.agentName} has the conversation again.` : "";
+      if (r.delivery && !r.delivery.delivered) toast.warning(`Saved in the conversation, but not delivered: ${r.delivery.detail ?? "the channel refused it"}.${handed}`);
+      else toast(`Sent.${handed}`);
       await load();
       onChanged();
     } catch (e: any) {
@@ -239,6 +247,9 @@ function Conversation({ id, onChanged, onOpenAgent }: { id: string; onChanged: (
     <>
       <section className="glass cv" aria-label={`Conversation with ${name}`}>
         <header className="ch">
+          <button className="btn t back" onClick={onBack}>
+            Back
+          </button>
           <div className="min0">
             <h2 className="truncate" dir="auto">
               {name}

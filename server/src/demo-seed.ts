@@ -17,10 +17,15 @@ export async function seedDemo(app: FastifyInstance, store: Store) {
   await web(shop.id, "visitor-maya", "Maya Cohen", "Is there a warranty on headphones?");
   await web(shop.id, "visitor-omer", "Omer Katz", "Where is my order 1042?");
 
-  const chat = (text: string, extra: Record<string, unknown> = {}) => post(`/api/agents/${clinic.id}/chat`, { contactId: "demo-noa", contactName: "נועה לוי", text, ...extra });
-  await chat("שלום");
-  await chat("", { buttonId: "question" });
-  await chat("כמה עולה טיפול פיזיותרפיה?");
-  await chat("אני צריכה תור דחוף מחר בבוקר, אפשר נציג?");
+  // The clinic talks to patients on WhatsApp. No credentials are set, so replies are logged in the sandbox.
+  store.upsertChannel(clinic.id, "whatsapp", {}, true);
+  const wa = (text: string, buttonId?: string) =>
+    post(`/webhooks/whatsapp/${clinic.id}`, {
+      entry: [{ changes: [{ value: { contacts: [{ wa_id: "447700900123", profile: { name: "נועה לוי" } }], messages: [buttonId ? { from: "447700900123", interactive: { button_reply: { id: buttonId, title: text } } } : { from: "447700900123", text: { body: text } }] } }] }],
+    });
+  await wa("שלום");
+  await wa("שאלה", "question");
+  await wa("כמה עולה טיפול פיזיותרפיה?");
+  await wa("אני צריכה תור דחוף מחר בבוקר, אפשר נציג?");
   return true;
 }

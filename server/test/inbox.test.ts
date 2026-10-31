@@ -104,4 +104,15 @@ describe("demo data", () => {
     expect(box.counts.all).toBeGreaterThanOrEqual(4);
     expect(await seedDemo(app, store)).toBe(false);
   });
+
+  it("says plainly when a WhatsApp reply could not be delivered because credentials are missing", async () => {
+    const { seedDemo } = await import("../src/demo-seed.js");
+    const { app, store } = await setup();
+    await seedDemo(app, store);
+    const noa = (await inbox(app, "?filter=waiting")).items.find((i: any) => i.channel === "whatsapp");
+    expect(noa).toBeTruthy();
+    const r = (await app.inject({ method: "POST", url: `/api/sessions/${noa.id}/reply`, payload: { text: "Hi Noa" } })).json();
+    expect(r.delivery.delivered).toBe(false);
+    expect(r.delivery.detail).toContain("credentials are not set");
+  });
 });

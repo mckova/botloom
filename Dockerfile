@@ -14,4 +14,4 @@ COPY --from=web /app/web/dist /app/web/dist
 ENV NODE_ENV=production PORT=8787 BOTLOOM_DB=/data/botloom.db
 VOLUME /data
 EXPOSE 8787
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["npx", "tsx", "src/index.ts", "--demo"]

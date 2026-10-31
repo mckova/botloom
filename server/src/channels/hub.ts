@@ -147,6 +147,11 @@ export class ChannelHub {
       this.store.logIntegration({ agentId, service: kind, action: "send", mode: "sandbox", request: { to, msg }, response: { note: "channel not connected" } });
       return { delivered: false, detail: `${kind} not connected (logged in sandbox)` };
     }
+    const missing = kind === "telegram" ? !ch.config.botToken : kind === "whatsapp" ? !ch.config.accessToken || !ch.config.phoneNumberId : false;
+    if (missing) {
+      this.store.logIntegration({ agentId, service: kind, action: "send", mode: "sandbox", request: { to, text: msg.text }, response: { note: "credentials missing" } });
+      return { delivered: false, detail: `${kind} credentials are not set (logged in sandbox)` };
+    }
     try {
       const res =
         kind === "telegram"

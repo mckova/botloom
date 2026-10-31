@@ -9,8 +9,8 @@
 */
 :root {
   --ink: #121821;
-  --ink-soft: rgb(18 24 33 / 0.62);
-  --ink-faint: rgb(18 24 33 / 0.42);
+  --ink-soft: rgb(18 24 33 / 0.78);
+  --ink-faint: rgb(18 24 33 / 0.68);
   --hair: rgb(18 24 33 / 0.08);
   --line: rgb(18 24 33 / 0.09);
   --line-strong: rgb(18 24 33 / 0.16);
@@ -54,6 +54,7 @@
   --font: "Geist Variable", "Noto Sans Hebrew Variable", system-ui, sans-serif;
   --mono: "Geist Mono Variable", ui-monospace, Menlo, monospace;
 
+  color-scheme: light;
   font-family: var(--font);
   font-size: 14px;
   line-height: 1.5;
@@ -401,7 +402,7 @@ table.grid .name { font-weight: 500; }
 .bubble.team { background: rgb(18 24 33 / 0.06); color: var(--ink); align-self: flex-end; }
 .bubble.sys { align-self: center; background: var(--warn-soft); font-size: 12px; }
 .bubble.typing { color: var(--ink-faint); }
-.bubble .stamp { font-size: 11px; opacity: 0.55; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.bubble .stamp { font-size: 11px; opacity: 0.8; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .bubble-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--s-2); }
 .bubble-btns button { height: 28px; font-size: 12.5px; white-space: normal; }
 .sim-input { display: flex; gap: 6px; padding: var(--s-3); border-top: 1px solid var(--line); background: var(--surface); flex-shrink: 0; }
@@ -486,4 +487,50 @@ dd[dir="auto"] { unicode-bidi: plaintext; text-align: left; }
   .inbox .side { display: none; }
   .two { grid-template-columns: 200px minmax(0, 1fr); }
   .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---------- small screens: one pane at a time ---------- */
+.back { display: none; }
+@media (max-width: 860px) {
+  .shell { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 100dvh; grid-template-rows: auto minmax(0, 1fr); padding: 10px; gap: 10px; }
+  .top { flex-wrap: wrap; gap: 10px 18px; padding: 4px 6px 0; }
+  .wm { width: auto; }
+  .nav { gap: 16px; flex: 1; justify-content: flex-end; }
+  .search { order: 3; margin-left: 0; width: 100%; flex-basis: 100%; }
+  .user { display: none; }
+  .inbox, .two { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .inbox > *, .two > * { min-width: 0; max-width: 100%; }
+  .folders { display: flex; flex-direction: row; gap: 6px; overflow-x: auto; padding: 10px; border-radius: 16px; flex-shrink: 0; }
+  .folders .k { display: none; }
+  .folders button.f { width: auto; flex-shrink: 0; white-space: nowrap; gap: 8px; }
+  .conv-list { padding: 16px 10px; }
+  .inbox[data-opened="false"] .cv, .inbox[data-opened="false"] .side { display: none; }
+  .inbox[data-opened="true"] .folders, .inbox[data-opened="true"] .conv-list, .inbox[data-opened="true"] .side { display: none; }
+  .inbox[data-opened="true"] .cv { min-height: calc(100dvh - 120px); }
+  .back { display: inline-flex; margin-left: -10px; }
+  .ch { padding: 14px 16px; }
+  .ms { padding: 16px; }
+  .m { max-width: 88%; }
+  .cp { margin: 0 10px 10px; }
+  .cp .r { flex-wrap: wrap; }
+  .ph { flex-wrap: wrap; gap: 4px 20px; padding: 12px 16px 0; }
+  .ph h1 { max-width: 100%; flex-basis: 100%; }
+  .tabs { overflow-x: auto; padding-bottom: 0; }
+  .tabs button { padding-block: 10px; }
+  .workspace, .page { padding: 20px 16px 48px; }
+  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel { overflow: auto; }
+  table.grid { display: block; overflow-x: auto; }
+  .builder, .builder.no-side { grid-template-columns: 1fr; height: auto; }
+  .palette { display: none; }
+  .canvas { height: 70dvh; }
+  .panel-right { border-inline-start: 0; border-top: 1px solid var(--hair); }
+  .split { grid-template-columns: 1fr; height: auto; }
+  .list { border-inline-end: 0; border-bottom: 1px solid var(--hair); max-height: 40dvh; }
+  .section { grid-template-columns: 1fr; gap: 12px; }
+  .example { grid-template-columns: 1fr; gap: 12px; }
+  .sheet { padding: 12px; }
+  .canvas-toolbar { flex-wrap: wrap; }
+  .command { flex-basis: 100%; max-width: none; }
+  .command input { min-width: 0; }
 }
