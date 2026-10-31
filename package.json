@@ -9,7 +9,10 @@
     "start": "npm --prefix server start",
     "dev": "npm --prefix server run dev & npm --prefix web run dev",
     "test": "npm --prefix server test",
-    "typecheck": "npm --prefix server run typecheck && npm --prefix web exec tsc --noEmit"
+    "typecheck": "npm --prefix server run typecheck && npm --prefix web exec tsc --noEmit",
+    "demo": "npm run install:all && npm run build && npm --prefix server run demo"
   },
-  "engines": { "node": ">=22.13" }
+  "engines": {
+    "node": ">=22.13"
+  }
 }

@@ -1,11 +1,15 @@
 import { buildApp } from "./app.js";
 import { startScheduler } from "./scheduler.js";
 import { TelegramPoller, parseTelegram } from "./channels/hub.js";
+import { seedDemo } from "./demo-seed.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const { app, store, engine, hub, services } = await buildApp();
 
 startScheduler(store, engine, hub);
+
+// `npm run demo` passes --demo: an empty database is filled with example agents and conversations.
+if (process.argv.includes("--demo") && (await seedDemo(app, store))) app.log.info("Demo data created");
 
 // Local development without a public URL: BOTLOOM_TELEGRAM_POLLING=1 long-polls every connected bot.
 if (process.env.BOTLOOM_TELEGRAM_POLLING === "1") {

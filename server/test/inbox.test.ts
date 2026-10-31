@@ -92,3 +92,16 @@ describe("knowledge edits from the inbox", () => {
     expect(JSON.parse(kb.result).results[0].title).toBe(t.title);
   });
 });
+
+describe("demo data", () => {
+  it("fills an empty workspace once with agents and a waiting conversation", async () => {
+    const { seedDemo } = await import("../src/demo-seed.js");
+    const { app, store } = await setup();
+    expect(await seedDemo(app, store)).toBe(true);
+    expect(store.listAgents()).toHaveLength(3);
+    const box = await inbox(app);
+    expect(box.counts.waiting).toBe(2);
+    expect(box.counts.all).toBeGreaterThanOrEqual(4);
+    expect(await seedDemo(app, store)).toBe(false);
+  });
+});

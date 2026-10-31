@@ -26,11 +26,9 @@ WhatsApp Cloud API, טלגרם, ווידג'ט לאתר עם תמיכה מלאה 
 ## הפעלה
 
 ```bash
-npm run install:all
-npm run build
-npm start   # http://localhost:8787
+npm run demo   # מתקין, בונה ומפעיל עם נתוני דוגמה: http://localhost:8787
 ```
 
-כדי לקבל תשובות אמיתיות מ-Claude מוסיפים `ANTHROPIC_API_KEY` לקובץ `.env`. בלי מפתח עונה ספק דמו קבוע, כך שהמערכת וכל 43 הבדיקות רצות גם בלי רשת.
+כדי לקבל תשובות אמיתיות מ-Claude מוסיפים `ANTHROPIC_API_KEY` לקובץ `.env`. בלי מפתח עונה ספק דמו קבוע, כך שהמערכת וכל 44 הבדיקות רצות גם בלי רשת.
 
 </div>

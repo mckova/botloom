@@ -48,9 +48,15 @@ Three agents ship with the app and run end to end without API keys:
 ## Quick start
 
 ```bash
+npm run demo           # installs, builds, and starts with example data: http://localhost:8787
+```
+
+Or step by step:
+
+```bash
 npm run install:all
 npm run build          # builds the web UI
-npm start              # http://localhost:8787
+npm start              # http://localhost:8787 (an empty workspace)
 ```
 
 Add `ANTHROPIC_API_KEY` to `.env` (see [.env.example](.env.example)) for real Claude responses. Without it a deterministic demo provider answers, so the whole app and the test suite work offline. In demo mode the command bar understands alert requests such as "alert me on Slack when someone asks for a human"; any other flow edit needs Claude.
@@ -90,4 +96,4 @@ No code execution in templates, an SSRF guard on HTTP steps, a per-agent tool al
 
 ## Tech
 
-TypeScript end to end. Node 22 (`node:sqlite`), Fastify, the Anthropic SDK (Claude Opus 5.5 with adaptive thinking, structured outputs, tool use, streaming and server-side fallbacks), React 19 with React Flow, Geist. 43 Vitest tests cover the engine, channels, security, scheduler, the agent tool loop, designer self-repair, availability, memory, the handoff brief, the flow copilot, the shared inbox and answer explanations.
+TypeScript end to end. Node 22 (`node:sqlite`), Fastify, the Anthropic SDK (Claude Opus 5.5 with adaptive thinking, structured outputs, tool use, streaming and server-side fallbacks), React 19 with React Flow, Geist. 44 Vitest tests cover the engine, channels, security, scheduler, the agent tool loop, designer self-repair, availability, memory, the handoff brief, the flow copilot, the shared inbox and answer explanations.
