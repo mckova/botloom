@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Widget demo · BotLoom</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: linear-gradient(135deg, #eef2ff, #fdf2f8); min-height: 100vh; }
+    main { max-width: 720px; margin: 0 auto; padding: 80px 24px; }
+    h1 { font-size: 40px; margin: 0 0 12px; }
+    p { color: #555; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>A business website</h1>
+    <p>This page simulates a customer's website. The chat bubble in the corner is the BotLoom widget, loaded with one script tag. Click it to talk to the agent.</p>
+  </main>
+  <script>
+    var id = new URLSearchParams(location.search).get("agent");
+    var s = document.createElement("script");
+    s.src = "/widget.js";
+    s.setAttribute("data-agent", id || "");
+    document.body.appendChild(s);
+  </script>
+</body>
+</html>
