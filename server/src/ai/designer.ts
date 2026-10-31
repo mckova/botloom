@@ -200,7 +200,7 @@ export async function reviseAgent(
   instruction: string,
   validate: Validate,
 ): Promise<Omit<DesignedAgent, "designer">> {
-  if (llm.name === "mock") throw new Error("Editing a flow with AI needs Claude: set ANTHROPIC_API_KEY on the server.");
+  if (llm.name === "mock") return reviseByRules(agent, instruction);
   const request = `Revise this existing BotLoom agent according to the owner's instruction.
 
 Rules for a revision:
@@ -217,4 +217,67 @@ ${JSON.stringify(asDraft(agent))}
 ${instruction}
 </instruction>`;
   return designLoop(llm, request, validate);
+}
+
+/**
+ * Demo-mode editor: understands one common request, "alert me on Slack/Telegram/Discord/WhatsApp when ...",
+ * so the command bar works without an API key. Anything else asks for a Claude key.
+ */
+export function reviseByRules(
+  agent: { name: string; description: string; settings: { language?: string; systemPrompt?: string }; flow: Flow },
+  instruction: string,
+): Omit<DesignedAgent, "designer"> {
+  const channel = instruction.match(/\b(slack|telegram|discord|whatsapp)\b/i)?.[1]?.toLowerCase();
+  const wantsAlert = /\b(alert|notify|ping|message|tell|send)\b/i.test(instruction);
+  if (!channel || !wantsAlert) {
+    throw new Error(
+      "The demo editor understands requests like \"alert me on Slack when someone asks for a human\". Set ANTHROPIC_API_KEY on the server to describe any other change.",
+    );
+  }
+  const flow: Flow = JSON.parse(JSON.stringify(agent.flow));
+  const forHandoff = /lead|human|handoff|hand off|escalat|person|team|נציג/i.test(instruction);
+  const agentNode = flow.nodes.find((n) => n.type === "ai.agent");
+  const id = (() => {
+    let n = 1;
+    while (flow.nodes.some((x) => x.id === `notify${n === 1 ? "" : n}`)) n++;
+    return `notify${n === 1 ? "" : n}`;
+  })();
+  let from: { id: string; port?: string } | undefined;
+  if (forHandoff && agentNode) from = { id: agentNode.id, port: "handoff" };
+  else {
+    // Attach after the end of the first trigger's chain.
+    const trigger = flow.nodes.find((n) => n.type.startsWith("trigger."));
+    let cur = trigger?.id;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const next = flow.edges.find((e) => e.source === cur && (e.sourcePort ?? "out") === "out");
+      if (!next) break;
+      cur = next.target;
+    }
+    if (cur) from = { id: cur };
+  }
+  if (!from) throw new Error("This flow has no starting step to attach the alert to.");
+  const anchor = flow.nodes.find((n) => n.id === from!.id);
+  const where = forHandoff ? "when the agent hands a conversation to your team" : "when the flow finishes";
+  flow.nodes.push({
+    id,
+    type: "channel.notify",
+    label: `Alert on ${channel}`,
+    position: { x: (anchor?.position?.x ?? 0) + 300, y: (anchor?.position?.y ?? 0) + 140 },
+    config: { channel, to: "", text: "{{contact.name}} on {{contact.channel}}: {{vars.handoff_reason}}" },
+  });
+  flow.edges.push({ id: `e_${from.id}_${id}`, source: from.id, ...(from.port ? { sourcePort: from.port } : {}), target: id });
+  return {
+    name: agent.name,
+    description: agent.description,
+    language: (agent.settings.language as "he" | "en") ?? "en",
+    systemPrompt: agent.settings.systemPrompt ?? "",
+    flow,
+    docs: [],
+    notes: [
+      `Added an "Alert on ${channel}" step ${where}.`,
+      channel === "slack" || channel === "discord" ? `Paste your ${channel} incoming-webhook URL in the Channels tab, or in the step's recipient field.` : `Set the chat or phone number to alert in the new step.`,
+    ],
+  };
 }

@@ -53,7 +53,7 @@ npm run build          # builds the web UI
 npm start              # http://localhost:8787
 ```
 
-Add `ANTHROPIC_API_KEY` to `.env` (see [.env.example](.env.example)) for real Claude responses. Without it a deterministic demo provider answers, so the whole app and the test suite work offline.
+Add `ANTHROPIC_API_KEY` to `.env` (see [.env.example](.env.example)) for real Claude responses. Without it a deterministic demo provider answers, so the whole app and the test suite work offline. In demo mode the command bar understands alert requests such as "alert me on Slack when someone asks for a human"; any other flow edit needs Claude.
 
 Development: `npm run dev` (API on :8787, UI on :5173). Tests: `npm test`. Docker: `docker compose up --build`.
 
@@ -90,4 +90,4 @@ No code execution in templates, an SSRF guard on HTTP steps, a per-agent tool al
 
 ## Tech
 
-TypeScript end to end. Node 22 (`node:sqlite`), Fastify, the Anthropic SDK (Claude Opus 5.5 with adaptive thinking, structured outputs, tool use, streaming and server-side fallbacks), React 19 with React Flow, Geist. 42 Vitest tests cover the engine, channels, security, scheduler, the agent tool loop, designer self-repair, availability, memory, the handoff brief, the flow copilot, the shared inbox and answer explanations.
+TypeScript end to end. Node 22 (`node:sqlite`), Fastify, the Anthropic SDK (Claude Opus 5.5 with adaptive thinking, structured outputs, tool use, streaming and server-side fallbacks), React 19 with React Flow, Geist. 43 Vitest tests cover the engine, channels, security, scheduler, the agent tool loop, designer self-repair, availability, memory, the handoff brief, the flow copilot, the shared inbox and answer explanations.

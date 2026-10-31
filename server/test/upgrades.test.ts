@@ -287,6 +287,19 @@ describe("flow copilot (revise with AI)", () => {
     expect(saved.flow.nodes.map((n: any) => n.id)).not.toContain("slackAlert");
   });
 
+  it("the demo editor adds an alert step for a simple request and the result validates", async () => {
+    const { app } = await setup();
+    const agent = await fromTemplate(app, "ai-sales-agent");
+    const res = await app.inject({ method: "POST", url: `/api/agents/${agent.id}/revise`, payload: { instruction: "alert me on Slack when someone asks for a human" } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const added = body.flow.nodes.find((n: any) => n.id === "notify" && n.type === "channel.notify");
+    expect(added.config.channel).toBe("slack");
+    expect(body.flow.edges.some((e: any) => e.source === "agent" && e.sourcePort === "handoff" && e.target === "notify")).toBe(true);
+    expect(body.validation.errors).toEqual([]);
+    expect(body.notes.length).toBeGreaterThan(0);
+  });
+
   it("explains that the copilot needs Claude in demo mode", async () => {
     const { app } = await setup();
     const agent = await fromTemplate(app, "ai-sales-agent");
